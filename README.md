@@ -4,10 +4,10 @@ A Robot Framework listener that writes every suite, test, keyword, control struc
 message of a run as JSON Lines, while the run happens. Item ids are Robot Framework's own
 (`s1-t2-k3`), so events join with `output.xml` and link into `log.html#<id>`.
 
-Requires Robot Framework 7.0 or newer and Python 3.10 or newer. Status: alpha, not on PyPI yet.
+Requires Robot Framework 7.0 or newer and Python 3.10 or newer. Status: alpha.
 
 ```
-pip install -e .
+pip install robotframework-events
 robot --listener robotframework_events.Listener tests/                       # writes ${OUTPUT DIR}/events.jsonl
 robot --listener "robotframework_events.Listener;file=ev.jsonl;level=DEBUG" tests/
 ```
