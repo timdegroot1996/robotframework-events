@@ -65,8 +65,8 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.mark.skipif(not LAUNCHER.is_dir(), reason=f"robotcode launcher not found at {LAUNCHER}")
-def test_events_arrive_in_complete_ordered_batches(tmp_path: Path) -> None:
+def run_debugger(tmp_path: Path, *flags: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None, str]:
+    """Runs sample.robot through `robotcode debug`; returns the robotEvents batches, robotExited and the output."""
     port = free_port()
     debugger = subprocess.Popen(
         [
@@ -77,6 +77,7 @@ def test_events_arrive_in_complete_ordered_batches(tmp_path: Path) -> None:
             str(port),
             "--wait-for-client",
             "--no-debug",
+            *flags,
             "--",
             "--outputdir",
             str(tmp_path),
@@ -84,6 +85,7 @@ def test_events_arrive_in_complete_ordered_batches(tmp_path: Path) -> None:
             "none",
             str(DATA / "sample.robot"),
         ],
+        cwd=tmp_path,  # no robot.toml: only the flags decide
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -111,6 +113,12 @@ def test_events_arrive_in_complete_ordered_batches(tmp_path: Path) -> None:
                 break
     finally:
         output, _ = debugger.communicate(timeout=60)
+    return batches, exited, output
+
+
+@pytest.mark.skipif(not LAUNCHER.is_dir(), reason=f"robotcode launcher not found at {LAUNCHER}")
+def test_events_arrive_in_complete_ordered_batches(tmp_path: Path) -> None:
+    batches, exited, output = run_debugger(tmp_path, "--execution-events")
 
     assert exited is not None and exited["exitCode"] == 1
     assert "Traceback" not in output and "AssertionError" not in output, output
@@ -125,3 +133,12 @@ def test_events_arrive_in_complete_ordered_batches(tmp_path: Path) -> None:
 
     # the archive file holds exactly the streamed events
     assert read_events(tmp_path / "events.jsonl") == events
+
+
+@pytest.mark.skipif(not LAUNCHER.is_dir(), reason=f"robotcode launcher not found at {LAUNCHER}")
+def test_no_listener_unless_turned_on(tmp_path: Path) -> None:
+    """Opt-in: without --execution-events (and without robot.toml) robotcode adds no listener at all."""
+    batches, exited, _ = run_debugger(tmp_path)
+    assert exited is not None and exited["exitCode"] == 1
+    assert batches == []
+    assert not list(tmp_path.glob("events*.jsonl"))
