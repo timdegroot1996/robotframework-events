@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## Unreleased
+## [0.3.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.3.0) - 2026-10-11
 
 ### Added
 - `outputdir` in `run.started` (also in events converted from an output file): the run's output directory, so viewers can show screenshots and other files that log messages link relative to it
