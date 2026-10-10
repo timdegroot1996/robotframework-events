@@ -201,6 +201,15 @@ def _step_ended_json(e: dict[str, Any]) -> str | None:
     return s if written == len(e) else None
 
 
+def default_events_file(outdir: str, output: str | None) -> Path:
+    """Where the listener writes by default: named after the output file, the way robotdashboard
+    finds a run's ``log.html`` (``output`` -> ``log``), so tools can find a run's events from its output."""
+    if not output or str(output).upper() == "NONE":
+        return Path(outdir) / "events.jsonl"
+    output_path = Path(output)
+    return output_path.with_name(output_path.name.replace("output", "events")).with_suffix(".jsonl")
+
+
 class _Frame:
     """One open suite, test or step on the stack.
 
@@ -233,7 +242,9 @@ class Listener:
 
     Arguments (``Listener:name=value:name=value``):
 
-    - ``file``: path of the JSONL file. Default ``${OUTPUT DIR}/events.jsonl``.
+    - ``file``: path of the JSONL file. Default: next to the output file, named like it with
+      ``output`` replaced by ``events`` (``output.xml`` -> ``events.jsonl``, ``output-1.xml`` ->
+      ``events-1.jsonl``); ``${OUTPUT DIR}/events.jsonl`` with ``--output NONE``.
       ``NONE`` disables the file (callbacks still get events).
     - ``level``: minimum level of logged messages, default ``INFO``.
     - ``messages``: emit ``message.logged`` events, default ``true``.
@@ -328,9 +339,10 @@ class Listener:
 
             try:
                 outdir = BuiltIn().get_variable_value("${OUTPUT DIR}") or os.getcwd()
+                output = BuiltIn().get_variable_value("${OUTPUT FILE}")
             except Exception:
-                outdir = os.getcwd()
-            path = Path(outdir) / "events.jsonl"
+                outdir, output = os.getcwd(), None
+            path = default_events_file(outdir, output)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             # buffered; flushed after every test and at close so tailing readers see progress

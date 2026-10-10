@@ -8,7 +8,7 @@ Requires Robot Framework 7.0 or newer and Python 3.10 or newer. Status: alpha.
 
 ```
 pip install robotframework-events
-robot --listener robotframework_events.Listener tests/                       # writes ${OUTPUT DIR}/events.jsonl
+robot --listener robotframework_events.Listener tests/                       # writes events.jsonl next to output.xml
 robot --listener "robotframework_events.Listener;file=ev.jsonl;level=DEBUG" tests/
 ```
 

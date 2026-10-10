@@ -234,3 +234,28 @@ def test_step_templates_match_the_encoder(tmp_path: Path):
     unknown = {"v": 1, "seq": 1, "t": 1.0, "type": "step.ended", "id": "s1-k1", "status": "PASS", "elapsed": 0.1}
     assert _step_ended_json({**unknown, "later": 1}) is None
     assert _step_started_json({**unknown, "type": "step.started", "kind": "IF", "condition": "1"}) is None
+
+
+def test_default_file_is_named_after_the_output_file(tmp_path: Path):
+    from robot import run
+
+    run(
+        str(DATA / "sample.robot"),
+        listener="robotframework_events.Listener",
+        outputdir=str(tmp_path),
+        output="output-7.xml",
+        console="none",
+        log="NONE",
+        report="NONE",
+    )
+    assert read_events(tmp_path / "events-7.jsonl")[-1]["type"] == "run.ended"
+
+
+def test_default_events_file_names():
+    from robotframework_events.listener import default_events_file
+
+    out = Path("results")
+    assert default_events_file("results", str(out / "output.xml")) == out / "events.jsonl"
+    assert default_events_file("results", str(out / "output-20261010.json")) == out / "events-20261010.jsonl"
+    assert default_events_file("results", str(out / "smoke.xml")) == out / "smoke.jsonl"
+    assert default_events_file("results", "NONE") == out / "events.jsonl"

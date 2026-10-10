@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## Unreleased
+
+### Changed
+- The default events file is named after the output file, the way robotdashboard finds a run's `log.html`: `output.xml` gives `events.jsonl`, `output-20261010.xml` gives `events-20261010.jsonl`, next to the output file. With `--output NONE` it stays `${OUTPUT DIR}/events.jsonl`
+
+---
+
 ## [0.1.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.1.0) - 2026-10-10
 
 First release.
