@@ -78,6 +78,7 @@ class SuiteStarted(Event):
     longname: str
     source: str | None = None
     tests: int
+    planned: list[str] | None = None
 
 
 @dataclass(slots=True, kw_only=True)

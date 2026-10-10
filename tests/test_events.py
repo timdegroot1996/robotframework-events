@@ -22,6 +22,17 @@ def test_every_event_has_envelope_fields_and_gapless_seq(sample_events):
     assert all(e["v"] == 1 for e in sample_events)
 
 
+def test_top_level_suite_lists_the_planned_tests(sample_events):
+    suites = by_type(sample_events, "suite.started")
+    assert suites[0]["planned"] == ["Sample.Passing With Structures", "Sample.Failing Test", "Sample.Skipped Test"]
+    assert all("planned" not in s for s in suites[1:])
+
+
+def test_planned_tests_follow_the_selection(tmp_path: Path):
+    events, _ = run_with_listener(tmp_path, [DATA / "sample.robot"], test=["Failing Test"])
+    assert by_type(events, "suite.started")[0]["planned"] == ["Sample.Failing Test"]
+
+
 def test_run_events_frame_the_stream(sample_events):
     assert sample_events[0]["type"] == "run.started"
     assert sample_events[0]["run"]

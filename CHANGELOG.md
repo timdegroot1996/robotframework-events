@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## Unreleased
+
+### Added
+- `planned` in the top-level `suite.started` (also in converted events): the full names of every test the run will execute, in run order, so viewers can estimate the remaining time from the tests that were actually selected
+
+---
+
 ## [0.3.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.3.0) - 2026-10-11
 
 ### Added

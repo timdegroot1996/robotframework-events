@@ -82,6 +82,7 @@ class _Converter:
             longname=suite.full_name,
             source=str(suite.source) if suite.source else None,
             tests=suite.test_count,
+            planned=[test.full_name for test in suite.all_tests] if parent is None else None,
         )
         counter = _Counter(id)
         if suite.has_setup:

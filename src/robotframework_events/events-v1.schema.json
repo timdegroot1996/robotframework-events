@@ -74,7 +74,11 @@
         "name": { "type": "string" },
         "longname": { "type": "string" },
         "source": { "type": "string" },
-        "tests": { "description": "Number of tests in the suite and its child suites.", "type": "integer", "minimum": 0 }
+        "tests": { "description": "Number of tests in the suite and its child suites.", "type": "integer", "minimum": 0 },
+        "planned": {
+          "description": "Top-level suite only: the full names of every test the run will execute, in run order.",
+          "$ref": "#/$defs/strings"
+        }
       }
     },
     "suite.ended": {

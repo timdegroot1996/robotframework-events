@@ -392,6 +392,8 @@ class Listener:
             longname=result.full_name,
             source=source,
             tests=data.test_count,
+            # the top-level suite lists every test the run will execute, for time estimates
+            planned=[test.full_name for test in data.all_tests] if not self._stack else None,
         )
         self._stack.append(_Frame(data.id, source, self._stack[-1] if self._stack else None))
 
