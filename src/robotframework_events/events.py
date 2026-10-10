@@ -57,6 +57,7 @@ class RunStarted(Event):
     python: str | None = None
     pid: int | None = None
     cwd: str | None = None
+    outputdir: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)

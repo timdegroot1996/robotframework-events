@@ -51,7 +51,11 @@
         "rf": { "description": "Robot Framework version.", "type": "string" },
         "python": { "description": "Python version.", "type": "string" },
         "pid": { "type": "integer" },
-        "cwd": { "type": "string" }
+        "cwd": { "type": "string" },
+        "outputdir": {
+          "description": "The run's output directory; log.html links screenshots and other files relative to it.",
+          "type": "string"
+        }
       }
     },
     "run.ended": {

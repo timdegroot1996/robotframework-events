@@ -25,6 +25,7 @@ def test_every_event_has_envelope_fields_and_gapless_seq(sample_events):
 def test_run_events_frame_the_stream(sample_events):
     assert sample_events[0]["type"] == "run.started"
     assert sample_events[0]["run"]
+    assert sample_events[0]["outputdir"]
     assert sample_events[-1]["type"] == "run.ended"
     assert sample_events[-1]["stats"] == {"total": 3, "passed": 1, "failed": 1, "skipped": 1}
 

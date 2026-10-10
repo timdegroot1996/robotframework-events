@@ -329,20 +329,21 @@ class Listener:
             with contextlib.suppress(OSError):
                 self._out.flush()
 
-    def _open_file(self) -> None:
+    def _output_locations(self) -> tuple[str, str | None]:
+        """${OUTPUT DIR} and ${OUTPUT FILE} of the run (cwd and None when they cannot be read)."""
+        from robot.libraries.BuiltIn import BuiltIn
+
+        try:
+            outdir = BuiltIn().get_variable_value("${OUTPUT DIR}") or os.getcwd()
+            output = BuiltIn().get_variable_value("${OUTPUT FILE}")
+        except Exception:
+            return os.getcwd(), None
+        return str(outdir), output
+
+    def _open_file(self, outdir: str, output: str | None) -> None:
         if self._file_option and self._file_option.upper() == "NONE":
             return
-        if self._file_option:
-            path = Path(self._file_option)
-        else:
-            from robot.libraries.BuiltIn import BuiltIn
-
-            try:
-                outdir = BuiltIn().get_variable_value("${OUTPUT DIR}") or os.getcwd()
-                output = BuiltIn().get_variable_value("${OUTPUT FILE}")
-            except Exception:
-                outdir, output = os.getcwd(), None
-            path = default_events_file(outdir, output)
+        path = Path(self._file_option) if self._file_option else default_events_file(outdir, output)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             # buffered; flushed after every test and at close so tailing readers see progress
@@ -370,7 +371,8 @@ class Listener:
         if not self._started:
             self._started = True
             self._root = result
-            self._open_file()
+            outdir, output = self._output_locations()
+            self._open_file(outdir, output)
             self._emit(
                 "run.started",
                 run=self._run_id,
@@ -378,6 +380,8 @@ class Listener:
                 python=platform.python_version(),
                 pid=os.getpid(),
                 cwd=os.getcwd(),
+                # log.html links screenshots and other files relative to it
+                outputdir=outdir,
             )
         source = str(data.source) if data.source else None
         self._emit(

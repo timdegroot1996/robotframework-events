@@ -64,6 +64,7 @@ class _Converter:
             "run.started",
             self.t,
             run=run,
+            outputdir=os.path.dirname(os.path.abspath(path)),
             rf=match.group(1) if match else "unknown",
             python=match.group(2) if match else None,
         )
