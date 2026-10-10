@@ -44,8 +44,8 @@
     "strings": { "type": "array", "items": { "type": "string" } },
 
     "run.started": {
-      "description": "First event of a stream. 'run' identifies the run; it is not repeated in later events.",
-      "required": ["run", "rf", "python", "pid", "cwd"],
+      "description": "First event of a stream. 'run' identifies the run; it is not repeated in later events. 'python', 'pid' and 'cwd' are missing in events converted from a result file.",
+      "required": ["run", "rf"],
       "properties": {
         "run": { "type": "string", "format": "uuid" },
         "rf": { "description": "Robot Framework version.", "type": "string" },

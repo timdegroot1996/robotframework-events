@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from robot.version import VERSION as ROBOT_VERSION
 
 import robotframework_events
 from conftest import DATA, check_format, read_events, run_with_listener
@@ -53,7 +54,7 @@ def test_parent_is_the_enclosing_open_item(sample_events):
 def test_if_and_try_roots_are_not_emitted(sample_events):
     kinds = {e["kind"] for e in by_type(sample_events, "step.started")}
     assert "IF/ELSE ROOT" not in kinds and "TRY/EXCEPT ROOT" not in kinds
-    assert {"IF", "ELSE", "TRY", "EXCEPT", "FOR", "ITERATION", "GROUP", "VAR"} <= kinds
+    assert {"IF", "ELSE", "TRY", "EXCEPT", "FOR", "ITERATION", "VAR"} <= kinds
 
 
 def test_keyword_fields(sample_events):
@@ -188,8 +189,20 @@ def test_flattened_keyword_is_marked_and_children_still_emitted(tmp_path: Path):
 def test_old_robot_framework_is_refused():
     from robotframework_events.listener import _check_robot_version
 
-    for version in ("7.5", "7.5.1", "7.6rc1", "8.0"):
+    for version in ("7.0", "7.4.2", "7.6rc1", "8.0"):
         _check_robot_version(version)
-    for version in ("7.4.2", "6.1"):
-        with pytest.raises(RuntimeError, match=r"requires Robot Framework 7\.5"):
+    for version in ("6.1.1", "5.0"):
+        with pytest.raises(RuntimeError, match=r"requires Robot Framework 7\.0"):
             _check_robot_version(version)
+
+
+@pytest.mark.skipif(
+    tuple(map(int, ROBOT_VERSION.split(".")[:2])) < (7, 2), reason="GROUP is new in Robot Framework 7.2"
+)
+def test_group(tmp_path: Path):
+    suite = tmp_path / "group.robot"
+    suite.write_text("*** Test Cases ***\nT\n    GROUP    My group\n        Log    inside\n    END\n", encoding="utf-8")
+    events, _ = run_with_listener(tmp_path, [suite])
+    steps = {e["id"]: e for e in by_type(events, "step.started")}
+    assert steps["s1-t1-k1"]["kind"] == "GROUP" and steps["s1-t1-k1"]["name"] == "My group"
+    assert steps["s1-t1-k1-k1"]["parent"] == "s1-t1-k1"

@@ -1,5 +1,8 @@
 """Id conformance: every emitted id, kind, parent and status matches output.xml.
 
+Converter conformance: events converted from that output.xml have the same ids, and give
+the same RunState as the live events (apart from times, sources and line numbers).
+
 Runs on tests/data and on Robot Framework's own acceptance test data
 (``RF_ATEST_DIR``, default ``../robotframework/atest/testdata``; skipped when missing).
 """
@@ -10,7 +13,9 @@ from pathlib import Path
 import pytest
 from robot.api import ExecutionResult, ResultVisitor
 
-from conftest import DATA, run_with_listener
+from conftest import DATA, check_format, run_with_listener
+from robotframework_events import RunState, convert, from_dict
+from robotframework_events.state import step_label
 
 ROOTS = {"IF/ELSE ROOT", "TRY/EXCEPT ROOT"}
 ATEST = Path(os.environ.get("RF_ATEST_DIR", Path(__file__).parents[2] / "robotframework" / "atest" / "testdata"))
@@ -85,6 +90,30 @@ def actual_items(events):
     return items
 
 
+# XML cannot hold most control characters, U+FFFE and U+FFFF; output.xml leaves them out
+NO_CONTROL = {c: None for c in [*range(32), 0xFFFE, 0xFFFF] if chr(c) not in "\t\n\r"}
+
+
+def tree(events):
+    """What a viewer shows of each suite, test and step, in order; children of flattened keywords left out."""
+    state = RunState.from_events(from_dict(e) for e in events)
+    flattened = {n.id for n in state.nodes.values() if getattr(n.started, "flatten", None)}
+    return [
+        (
+            node.id,
+            node.kind,
+            node.parent,
+            step_label(node).translate(NO_CONTROL),
+            getattr(node.started, "args", None),
+            node.status,
+            node.message,
+            [] if node.id in flattened else [(m.level, m.text.translate(NO_CONTROL)) for m in node.messages],
+        )
+        for node in state.nodes.values()
+        if not any(node.id.startswith(f + "-") for f in flattened)
+    ]
+
+
 def assert_conforms(tmp_path, sources, **options):
     events, output = run_with_listener(tmp_path, sources, **options)
     expected = Expected()
@@ -93,11 +122,17 @@ def assert_conforms(tmp_path, sources, **options):
     assert len(actual) == len(expected.items)
     for got, want in zip(actual, expected.items, strict=True):
         assert got == want
+
+    converted = list(convert(output))
+    check_format(converted)
+    assert actual_items(converted) == expected.items
+    for live, replayed in zip(tree(events), tree(converted), strict=True):
+        assert live == replayed
     return len(actual)
 
 
 def test_sample_conforms(tmp_path):
-    assert assert_conforms(tmp_path, [DATA / "sample.robot"]) == 44
+    assert assert_conforms(tmp_path, [DATA / "sample.robot"]) == 43
 
 
 @pytest.mark.skipif(not ATEST.is_dir(), reason=f"Robot Framework acceptance test data not found at {ATEST}")

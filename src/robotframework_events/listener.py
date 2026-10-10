@@ -18,7 +18,7 @@ from robot import result, running
 from robot.version import VERSION as ROBOT_VERSION
 
 FORMAT_VERSION = 1
-MIN_RF_VERSION = (7, 5)
+MIN_RF_VERSION = (7, 0)
 
 EventCallback = Callable[[dict[str, Any]], None]
 
@@ -98,6 +98,37 @@ def _short_list(values: Any) -> list[str] | None:
     return items
 
 
+def step_fields(kind: str, result: Any, args: bool = True) -> dict[str, Any]:
+    """Kind-specific fields of a step.started event, from a result model body item."""
+    if kind in ("KEYWORD", "SETUP", "TEARDOWN"):
+        return {
+            "name": result.name,
+            "owner": result.owner,
+            "args": _short_list(result.args) if args else None,
+            "assign": list(result.assign) or None,
+            # children of a flattened keyword are emitted live but are not in output.xml or log.html
+            "flatten": True if any(_normalize(t) == "robot:flatten" for t in result.tags) else None,
+        }
+    if kind == "FOR":
+        return {"assign": list(result.assign), "flavor": result.flavor, "values": _short_list(result.values)}
+    if kind == "ITERATION":
+        assign = getattr(result, "assign", None)
+        return {"assign": {k: _short(v) for k, v in assign.items()} if assign else None}
+    if kind in ("IF", "ELSE IF"):
+        return {"condition": result.condition}
+    if kind == "WHILE":
+        return {"condition": result.condition, "limit": result.limit}
+    if kind == "EXCEPT":
+        return {"patterns": list(result.patterns), "assign": result.assign}
+    if kind == "GROUP":
+        return {"name": result.name}
+    if kind == "VAR":
+        return {"name": result.name, "values": _short_list(result.value), "scope": result.scope}
+    if kind in ("RETURN", "ERROR"):
+        return {"values": _short_list(result.values)}
+    return {}
+
+
 class _Frame:
     """One open suite, test or step on the stack.
 
@@ -166,8 +197,8 @@ class Listener:
         self._started = False
         self._root: result.TestSuite | None = None
         self._stack: list[_Frame] = []
-        # last emitted status of every suite and test, to detect changes made by suite teardowns
-        self._statuses: dict[str, str] = {}
+        # last emitted status and message of every suite and test, to detect changes made by suite teardowns
+        self._statuses: dict[str, tuple[str, str]] = {}
         self._encode = json.JSONEncoder(ensure_ascii=False, separators=(",", ":"), default=str).encode
         # data.source walks up the model on every call; siblings share their parent, so cache per parent
         self._source_parent: Any = None
@@ -255,8 +286,8 @@ class Listener:
             "suite.started",
             id=data.id,
             parent=self._parent_id(),
-            name=data.name,
-            longname=data.full_name,
+            name=result.name,
+            longname=result.full_name,
             source=source,
             tests=data.test_count,
         )
@@ -266,7 +297,7 @@ class Listener:
         self._stack.pop()
         if result.has_teardown and result.teardown.status in ("FAIL", "SKIP"):
             self._emit_status_changes(result)
-        self._statuses[data.id] = result.status
+        self._statuses[data.id] = (result.status, result.message)
         self._emit(
             "suite.ended",
             id=data.id,
@@ -277,16 +308,18 @@ class Listener:
         )
 
     def _emit_status_changes(self, suite: result.TestSuite) -> None:
-        """A failing or skipping suite teardown changes the status of tests and suites that already ended."""
+        """A failing or skipping suite teardown changes the status or message of tests and suites that already ended."""
         for child in suite.suites:
-            if self._statuses.get(child.id, child.status) != child.status:
-                self._statuses[child.id] = child.status
-                self._emit("status.changed", id=child.id, item="suite", status=child.status, message=child.message)
+            self._status_change(child, "suite")
             self._emit_status_changes(child)
         for test in suite.tests:
-            if self._statuses.get(test.id, test.status) != test.status:
-                self._statuses[test.id] = test.status
-                self._emit("status.changed", id=test.id, item="test", status=test.status, message=test.message)
+            self._status_change(test, "test")
+
+    def _status_change(self, item: result.TestSuite | result.TestCase, kind: str) -> None:
+        current = (item.status, item.message)
+        if self._statuses.get(item.id, current) != current:
+            self._statuses[item.id] = current
+            self._emit("status.changed", id=item.id, item=kind, status=item.status, message=item.message)
 
     def start_test(self, data: running.TestCase, result: result.TestCase) -> None:
         source = str(data.source) if data.source else None
@@ -294,8 +327,8 @@ class Listener:
             "test.started",
             id=data.id,
             parent=self._parent_id(),
-            name=data.name,
-            longname=data.full_name,
+            name=result.name,
+            longname=result.full_name,
             source=source,
             lineno=data.lineno,
             tags=list(data.tags) or None,
@@ -304,7 +337,7 @@ class Listener:
 
     def end_test(self, data: running.TestCase, result: result.TestCase) -> None:
         self._stack.pop()
-        self._statuses[data.id] = result.status
+        self._statuses[data.id] = (result.status, result.message)
         self._emit(
             "test.ended",
             id=data.id,
@@ -341,38 +374,9 @@ class Listener:
             kind=kind,
             source=source if source and source != parent.source else None,
             lineno=getattr(data, "lineno", None),
-            **self._step_fields(kind, result),
+            **step_fields(kind, result, self._args),
         )
         self._stack.append(_Frame(item_id, source or parent.source, parent))
-
-    def _step_fields(self, kind: str, result: Any) -> dict[str, Any]:
-        if kind in ("KEYWORD", "SETUP", "TEARDOWN"):
-            return {
-                "name": result.name,
-                "owner": result.owner,
-                "args": _short_list(result.args) if self._args else None,
-                "assign": list(result.assign) or None,
-                # children of a flattened keyword are emitted live but are not in output.xml or log.html
-                "flatten": True if any(_normalize(t) == "robot:flatten" for t in result.tags) else None,
-            }
-        if kind == "FOR":
-            return {"assign": list(result.assign), "flavor": result.flavor, "values": _short_list(result.values)}
-        if kind == "ITERATION":
-            assign = getattr(result, "assign", None)
-            return {"assign": {k: _short(v) for k, v in assign.items()} if assign else None}
-        if kind in ("IF", "ELSE IF"):
-            return {"condition": result.condition}
-        if kind == "WHILE":
-            return {"condition": result.condition, "limit": result.limit}
-        if kind == "EXCEPT":
-            return {"patterns": list(result.patterns), "assign": result.assign}
-        if kind == "GROUP":
-            return {"name": result.name}
-        if kind == "VAR":
-            return {"name": result.name, "values": _short_list(result.value), "scope": result.scope}
-        if kind in ("RETURN", "ERROR"):
-            return {"values": _short_list(result.values)}
-        return {}
 
     def end_body_item(self, data: Any, result: Any) -> None:
         frame = self._stack.pop()

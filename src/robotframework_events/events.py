@@ -48,13 +48,15 @@ class Event:
 
 @dataclass(slots=True, kw_only=True)
 class RunStarted(Event):
+    """``python``, ``pid`` and ``cwd`` are missing in events converted from a result file."""
+
     TYPE: ClassVar[str] = "run.started"
 
     run: str
     rf: str
-    python: str
-    pid: int
-    cwd: str
+    python: str | None = None
+    pid: int | None = None
+    cwd: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)

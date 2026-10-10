@@ -23,21 +23,27 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # oldest and newest supported Python; the package is pure Python
+        python: ["3.10", "3.14"]
+        rf: ["7.5"]
+        include:
+          # oldest supported Robot Framework
+          - { os: ubuntu-latest, python: "3.10", rf: "7.0" }
+    name: test (${{ matrix.os }}, py${{ matrix.python }}, rf${{ matrix.rf }})
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      # Robot Framework's acceptance test data, for the id conformance tests
+      # Robot Framework's acceptance test data of the same version, for the id conformance tests
       - uses: actions/checkout@v4
         with:
           repository: robotframework/robotframework
-          ref: v7.5
+          ref: v${{ matrix.rf }}
           path: robotframework
           sparse-checkout: atest
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e .[dev]
+      - run: pip install -e .[dev] "robotframework==${{ matrix.rf }}.*"
       - run: pytest
         env:
           RF_ATEST_DIR: ${{ github.workspace }}/robotframework/atest/testdata

@@ -18,10 +18,8 @@ Passing With Structures
     EXCEPT    expected
         Log    caught
     END
-    GROUP    My group
-        VAR    ${x}    1
-        Log    ${x}
-    END
+    VAR    ${x}    1
+    Log    ${x}
     Run Keyword And Ignore Error    Fail    ignored
     [Teardown]    Log    test teardown
 
