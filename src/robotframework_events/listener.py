@@ -98,34 +98,53 @@ def _short_list(values: Any) -> list[str] | None:
     return items
 
 
+def _clean(fields: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in fields.items() if v is not None and v != ""}
+
+
 def step_fields(kind: str, result: Any, args: bool = True) -> dict[str, Any]:
-    """Kind-specific fields of a step.started event, from a result model body item."""
+    """Kind-specific fields of a step.started event, from a result model body item.
+
+    Fields without a value are left out. Keywords and loop iterations are by far the most
+    common steps, so they are built without intermediate values.
+    """
     if kind in ("KEYWORD", "SETUP", "TEARDOWN"):
-        return {
-            "name": result.name,
-            "owner": result.owner,
-            "args": _short_list(result.args) if args else None,
-            "assign": list(result.assign) or None,
-            # children of a flattened keyword are emitted live but are not in output.xml or log.html
-            "flatten": True if any(_normalize(t) == "robot:flatten" for t in result.tags) else None,
-        }
-    if kind == "FOR":
-        return {"assign": list(result.assign), "flavor": result.flavor, "values": _short_list(result.values)}
+        fields: dict[str, Any] = {}
+        name = result.name
+        if name:
+            fields["name"] = name
+        owner = result.owner
+        if owner:
+            fields["owner"] = owner
+        if args:
+            values = result.args
+            if values:
+                fields["args"] = _short_list(values)
+        assign = result.assign
+        if assign:
+            fields["assign"] = list(assign)
+        tags = result.tags
+        # children of a flattened keyword are emitted live but are not in output.xml or log.html
+        if tags and any(_normalize(t) == "robot:flatten" for t in tags):
+            fields["flatten"] = True
+        return fields
     if kind == "ITERATION":
         assign = getattr(result, "assign", None)
-        return {"assign": {k: _short(v) for k, v in assign.items()} if assign else None}
+        return {"assign": {k: _short(v) for k, v in assign.items()}} if assign else {}
+    if kind == "FOR":
+        return _clean({"assign": list(result.assign), "flavor": result.flavor, "values": _short_list(result.values)})
     if kind in ("IF", "ELSE IF"):
-        return {"condition": result.condition}
+        return _clean({"condition": result.condition})
     if kind == "WHILE":
-        return {"condition": result.condition, "limit": result.limit}
+        return _clean({"condition": result.condition, "limit": result.limit})
     if kind == "EXCEPT":
-        return {"patterns": list(result.patterns), "assign": result.assign}
+        return _clean({"patterns": list(result.patterns), "assign": result.assign})
     if kind == "GROUP":
-        return {"name": result.name}
+        return _clean({"name": result.name})
     if kind == "VAR":
-        return {"name": result.name, "values": _short_list(result.value), "scope": result.scope}
+        return _clean({"name": result.name, "values": _short_list(result.value), "scope": result.scope})
     if kind in ("RETURN", "ERROR"):
-        return {"values": _short_list(result.values)}
+        return _clean({"values": _short_list(result.values)})
     return {}
 
 
@@ -206,13 +225,19 @@ class Listener:
 
     # --- emitting -------------------------------------------------------------
 
-    def _emit(self, type_: str, **fields: Any) -> None:
+    def _new(self, type_: str) -> dict[str, Any]:
         self._seq += 1
-        event: dict[str, Any] = {"v": FORMAT_VERSION, "seq": self._seq, "t": round(time.time(), 3), "type": type_}
+        return {"v": FORMAT_VERSION, "seq": self._seq, "t": round(time.time(), 3), "type": type_}
+
+    def _emit(self, type_: str, **fields: Any) -> None:
+        """Emits an event; fields that are None or empty are left out."""
+        event = self._new(type_)
         for key, value in fields.items():
             if value is not None and value != "":
                 event[key] = value
+        self._write(event)
 
+    def _write(self, event: dict[str, Any]) -> None:
         if self._out is not None:
             try:
                 self._out.write(self._encode(event) + "\n")
@@ -220,6 +245,8 @@ class Listener:
                 print(f"robotframework-events: disabling file output: {e}", file=sys.__stderr__)
                 self._out = None
 
+        if not _callbacks:
+            return
         for callback in list(_callbacks):
             try:
                 callback(event)
@@ -367,28 +394,33 @@ class Listener:
             self._stack.append(_Frame(item_id, source or parent.source, parent, emitted=False))
             return
 
-        self._emit(
-            "step.started",
-            id=item_id,
-            parent=parent.pid,
-            kind=kind,
-            source=source if source and source != parent.source else None,
-            lineno=getattr(data, "lineno", None),
-            **step_fields(kind, result, self._args),
-        )
+        # the most frequent event: built directly instead of through _emit
+        event = self._new("step.started")
+        event["id"] = item_id
+        if parent.pid is not None:
+            event["parent"] = parent.pid
+        event["kind"] = kind
+        if source and source != parent.source:
+            event["source"] = source
+        lineno = getattr(data, "lineno", None)
+        if lineno is not None:
+            event["lineno"] = lineno
+        event.update(step_fields(kind, result, self._args))
+        self._write(event)
         self._stack.append(_Frame(item_id, source or parent.source, parent))
 
     def end_body_item(self, data: Any, result: Any) -> None:
         frame = self._stack.pop()
         if not frame.emitted:
             return
-        self._emit(
-            "step.ended",
-            id=frame.id,
-            status=result.status,
-            message=result.message,
-            elapsed=round(result.elapsed_time.total_seconds(), 4),
-        )
+        event = self._new("step.ended")
+        event["id"] = frame.id
+        event["status"] = result.status
+        message = result.message
+        if message:
+            event["message"] = message
+        event["elapsed"] = round(result.elapsed_time.total_seconds(), 4)
+        self._write(event)
 
     # --- messages and result files ---------------------------------------------------
 

@@ -1,8 +1,9 @@
 """Overhead on the no-op loop, the worst case. Run with ``pytest -m bench``.
 
 The plan aims for 25%. Measured 2026-10-10 (RF 7.5, Python 3.14, Windows): an empty
-listener costs 5%, a minimal id-tracking listener 22%, this listener 29% (richer events). The budget
-below is a regression guard until the encoding is optimised.
+listener costs 5%, a minimal id-tracking listener 22%, this listener 26% (34% before step
+events were built without empty fields; best of 7, alternating runs). Most of the rest is JSON
+encoding. Single runs vary by about 7 points, so the budget below is a regression guard.
 """
 
 import time
