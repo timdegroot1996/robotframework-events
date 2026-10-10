@@ -11,6 +11,7 @@ import sys
 import time
 import uuid
 from collections.abc import Callable
+from json.encoder import encode_basestring as _quote
 from pathlib import Path
 from typing import IO, Any
 
@@ -108,7 +109,7 @@ def step_fields(kind: str, result: Any, args: bool = True) -> dict[str, Any]:
     Fields without a value are left out. Keywords and loop iterations are by far the most
     common steps, so they are built without intermediate values.
     """
-    if kind in ("KEYWORD", "SETUP", "TEARDOWN"):
+    if kind in KEYWORD_TYPES:
         fields: dict[str, Any] = {}
         name = result.name
         if name:
@@ -146,6 +147,58 @@ def step_fields(kind: str, result: Any, args: bool = True) -> dict[str, Any]:
     if kind in ("RETURN", "ERROR"):
         return _clean({"values": _short_list(result.values)})
     return {}
+
+
+# Step events are almost all events. Writing them from a template is about twice as fast as the
+# general encoder. Ids, kinds and statuses need no escaping; other strings go through _quote.
+# Anything unexpected (another kind, an unknown field, a value of another type) returns None
+# and is written by the general encoder instead.
+KEYWORD_TYPES = frozenset({"KEYWORD", "SETUP", "TEARDOWN"})
+
+
+def _step_started_json(e: dict[str, Any]) -> str | None:
+    kind = e["kind"]
+    if kind not in KEYWORD_TYPES and kind != "ITERATION":
+        return None
+    s = f'{{"v":{e["v"]},"seq":{e["seq"]},"t":{e["t"]!r},"type":"step.started","id":"{e["id"]}"'
+    written = 6
+    if "parent" in e:
+        s += f',"parent":"{e["parent"]}"'
+        written += 1
+    s += f',"kind":"{kind}"'
+    if "source" in e:
+        s += f',"source":{_quote(e["source"])}'
+        written += 1
+    if "lineno" in e:
+        s += f',"lineno":{int(e["lineno"])}'
+        written += 1
+    if kind == "ITERATION":
+        if "assign" in e:
+            s += ',"assign":{' + ",".join(f"{_quote(k)}:{_quote(v)}" for k, v in e["assign"].items()) + "}"
+            written += 1
+    else:
+        for key in ("name", "owner"):
+            if key in e:
+                s += f',"{key}":{_quote(e[key])}'
+                written += 1
+        for key in ("args", "assign"):
+            if key in e:
+                s += f',"{key}":[{",".join(map(_quote, e[key]))}]'
+                written += 1
+        if e.get("flatten") is True:
+            s += ',"flatten":true'
+            written += 1
+    return s + "}" if written == len(e) else None
+
+
+def _step_ended_json(e: dict[str, Any]) -> str | None:
+    s = f'{{"v":{e["v"]},"seq":{e["seq"]},"t":{e["t"]!r},"type":"step.ended","id":"{e["id"]}","status":"{e["status"]}"'
+    written = 7
+    if "message" in e:
+        s += f',"message":{_quote(e["message"])}'
+        written += 1
+    s += f',"elapsed":{float(e["elapsed"])!r}}}'
+    return s if written == len(e) else None
 
 
 class _Frame:
@@ -237,10 +290,16 @@ class Listener:
                 event[key] = value
         self._write(event)
 
-    def _write(self, event: dict[str, Any]) -> None:
+    def _write(self, event: dict[str, Any], template: Callable[[dict[str, Any]], str | None] | None = None) -> None:
         if self._out is not None:
+            line = None
+            if template is not None:
+                try:
+                    line = template(event)
+                except (TypeError, ValueError, AttributeError):  # an unexpected value: use the encoder
+                    line = None
             try:
-                self._out.write(self._encode(event) + "\n")
+                self._out.write((line if line is not None else self._encode(event)) + "\n")
             except OSError as e:
                 print(f"robotframework-events: disabling file output: {e}", file=sys.__stderr__)
                 self._out = None
@@ -406,7 +465,7 @@ class Listener:
         if lineno is not None:
             event["lineno"] = lineno
         event.update(step_fields(kind, result, self._args))
-        self._write(event)
+        self._write(event, _step_started_json)
         self._stack.append(_Frame(item_id, source or parent.source, parent))
 
     def end_body_item(self, data: Any, result: Any) -> None:
@@ -420,7 +479,7 @@ class Listener:
         if message:
             event["message"] = message
         event["elapsed"] = round(result.elapsed_time.total_seconds(), 4)
-        self._write(event)
+        self._write(event, _step_ended_json)
 
     # --- messages and result files ---------------------------------------------------
 

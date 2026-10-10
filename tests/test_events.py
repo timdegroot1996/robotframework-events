@@ -1,5 +1,6 @@
 """Event format and listener options, on tests/data/sample.robot."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -206,3 +207,30 @@ def test_group(tmp_path: Path):
     steps = {e["id"]: e for e in by_type(events, "step.started")}
     assert steps["s1-t1-k1"]["kind"] == "GROUP" and steps["s1-t1-k1"]["name"] == "My group"
     assert steps["s1-t1-k1-k1"]["parent"] == "s1-t1-k1"
+
+
+def test_step_templates_match_the_encoder(tmp_path: Path):
+    from robotframework_events.listener import _step_ended_json, _step_started_json
+
+    suite = tmp_path / "quotes.robot"
+    suite.write_text(
+        '*** Test Cases ***\nT\n    ${x}    Set Variable    a"b\\c\n    Log    tab\there é ✓ "q"\n'
+        '    FOR    ${i}    IN    x"y    \\z\n        No Operation\n    END\n    Fail    bad "msg" \\ ✗\n',
+        encoding="utf-8",
+    )
+    events, _ = run_with_listener(tmp_path / "out dir é", [suite])
+    templated = 0
+    for event in events:
+        template = {"step.started": _step_started_json, "step.ended": _step_ended_json}.get(event["type"])
+        line = template(event) if template else None
+        if line is not None:
+            assert json.loads(line) == event
+            templated += 1
+        elif template is _step_ended_json:
+            raise AssertionError(f"step.ended not templated: {event}")
+    assert templated >= 8
+
+    # a field the template does not know is left to the encoder
+    unknown = {"v": 1, "seq": 1, "t": 1.0, "type": "step.ended", "id": "s1-k1", "status": "PASS", "elapsed": 0.1}
+    assert _step_ended_json({**unknown, "later": 1}) is None
+    assert _step_started_json({**unknown, "type": "step.started", "kind": "IF", "condition": "1"}) is None
