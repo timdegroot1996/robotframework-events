@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/timdegroot1996/robotframework-events/blob/main/src/robotframework_events/events-v1.schema.json",
+  "title": "Robot Framework execution event, format v1",
+  "description": "One line of an events JSONL file. Fields with no value are left out. Readers ignore unknown fields and unknown event types.",
+  "type": "object",
+  "required": ["v", "seq", "t", "type"],
+  "properties": {
+    "v": { "description": "Format version.", "const": 1 },
+    "seq": { "description": "1, 2, 3, ... per stream, without gaps.", "type": "integer", "minimum": 1 },
+    "t": { "description": "Unix time in seconds.", "type": "number" },
+    "type": { "type": "string" }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "run.started" } } }, "then": { "$ref": "#/$defs/run.started" } },
+    { "if": { "properties": { "type": { "const": "run.ended" } } }, "then": { "$ref": "#/$defs/run.ended" } },
+    { "if": { "properties": { "type": { "const": "suite.started" } } }, "then": { "$ref": "#/$defs/suite.started" } },
+    { "if": { "properties": { "type": { "const": "suite.ended" } } }, "then": { "$ref": "#/$defs/suite.ended" } },
+    { "if": { "properties": { "type": { "const": "test.started" } } }, "then": { "$ref": "#/$defs/test.started" } },
+    { "if": { "properties": { "type": { "const": "test.ended" } } }, "then": { "$ref": "#/$defs/test.ended" } },
+    { "if": { "properties": { "type": { "const": "step.started" } } }, "then": { "$ref": "#/$defs/step.started" } },
+    { "if": { "properties": { "type": { "const": "step.ended" } } }, "then": { "$ref": "#/$defs/step.ended" } },
+    { "if": { "properties": { "type": { "const": "message.logged" } } }, "then": { "$ref": "#/$defs/message.logged" } },
+    { "if": { "properties": { "type": { "const": "status.changed" } } }, "then": { "$ref": "#/$defs/status.changed" } },
+    { "if": { "properties": { "type": { "const": "resultfile.created" } } }, "then": { "$ref": "#/$defs/resultfile.created" } }
+  ],
+  "$defs": {
+    "id": {
+      "description": "Robot Framework's item id, as in output.xml and log.html#<id>.",
+      "type": "string",
+      "pattern": "^s\\d+(-s\\d+)*(-t\\d+)?(-k\\d+)*$"
+    },
+    "status": { "enum": ["PASS", "FAIL", "SKIP", "NOT RUN", "NOT SET"] },
+    "stats": {
+      "type": "object",
+      "required": ["total", "passed", "failed", "skipped"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "strings": { "type": "array", "items": { "type": "string" } },
+
+    "run.started": {
+      "description": "First event of a stream. 'run' identifies the run; it is not repeated in later events.",
+      "required": ["run", "rf", "python", "pid", "cwd"],
+      "properties": {
+        "run": { "type": "string", "format": "uuid" },
+        "rf": { "description": "Robot Framework version.", "type": "string" },
+        "python": { "description": "Python version.", "type": "string" },
+        "pid": { "type": "integer" },
+        "cwd": { "type": "string" }
+      }
+    },
+    "run.ended": {
+      "description": "Last event of a stream.",
+      "required": ["status", "stats"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "stats": { "$ref": "#/$defs/stats" }
+      }
+    },
+    "suite.started": {
+      "required": ["id", "name", "longname", "tests"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "parent": { "description": "Left out for the top-level suite.", "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "longname": { "type": "string" },
+        "source": { "type": "string" },
+        "tests": { "description": "Number of tests in the suite and its child suites.", "type": "integer", "minimum": 0 }
+      }
+    },
+    "suite.ended": {
+      "required": ["id", "status", "elapsed", "stats"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "status": { "$ref": "#/$defs/status" },
+        "message": { "type": "string" },
+        "elapsed": { "description": "Seconds.", "type": "number", "minimum": 0 },
+        "stats": { "$ref": "#/$defs/stats" }
+      }
+    },
+    "test.started": {
+      "required": ["id", "parent", "name", "longname"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "parent": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "longname": { "type": "string" },
+        "source": { "type": "string" },
+        "lineno": { "type": "integer" },
+        "tags": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "test.ended": {
+      "required": ["id", "status", "elapsed"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "status": { "$ref": "#/$defs/status" },
+        "message": { "type": "string" },
+        "elapsed": { "description": "Seconds.", "type": "number", "minimum": 0 }
+      }
+    },
+    "step.started": {
+      "description": "A keyword, setup, teardown or control structure. IF/ELSE and TRY/EXCEPT roots are not emitted: their branches are children of the root's parent.",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "parent": { "description": "Nearest emitted ancestor.", "$ref": "#/$defs/id" },
+        "kind": {
+          "enum": ["KEYWORD", "SETUP", "TEARDOWN", "FOR", "ITERATION", "IF", "ELSE IF", "ELSE", "TRY", "EXCEPT", "FINALLY", "WHILE", "GROUP", "VAR", "RETURN", "BREAK", "CONTINUE", "ERROR"]
+        },
+        "source": { "description": "Left out when equal to the parent's source.", "type": "string" },
+        "lineno": { "type": "integer" },
+        "name": { "description": "Keyword, GROUP or VAR name.", "type": "string" },
+        "owner": { "description": "Library or resource file of a keyword.", "type": "string" },
+        "args": { "description": "Keyword arguments as written, truncated.", "$ref": "#/$defs/strings" },
+        "assign": {
+          "description": "Variables of a keyword or FOR (list), values of an ITERATION ({variable: value}), variable of an EXCEPT (string).",
+          "anyOf": [
+            { "$ref": "#/$defs/strings" },
+            { "type": "object", "additionalProperties": { "type": "string" } },
+            { "type": "string" }
+          ]
+        },
+        "flatten": { "description": "Keyword tagged robot:flatten: its children are emitted, but are not in output.xml.", "const": true },
+        "flavor": { "description": "FOR flavor, for example 'IN RANGE'.", "type": "string" },
+        "values": { "description": "FOR values, VAR values, RETURN values or ERROR values.", "$ref": "#/$defs/strings" },
+        "condition": { "description": "IF, ELSE IF or WHILE condition.", "type": "string" },
+        "limit": { "description": "WHILE limit.", "type": "string" },
+        "patterns": { "description": "EXCEPT patterns.", "$ref": "#/$defs/strings" },
+        "scope": { "description": "VAR scope.", "type": "string" }
+      }
+    },
+    "step.ended": {
+      "required": ["id", "status", "elapsed"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "status": { "$ref": "#/$defs/status" },
+        "message": { "type": "string" },
+        "elapsed": { "description": "Seconds.", "type": "number", "minimum": 0 }
+      }
+    },
+    "message.logged": {
+      "required": ["level"],
+      "properties": {
+        "parent": { "description": "The suite, test or step that logged the message.", "$ref": "#/$defs/id" },
+        "level": { "enum": ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FAIL", "SKIP"] },
+        "text": { "description": "Left out when empty; cut to max_text characters.", "type": "string" },
+        "truncated": { "const": true },
+        "html": { "const": true }
+      }
+    },
+    "status.changed": {
+      "description": "A failing or skipping suite teardown changed the status of a suite or test that already ended. Readers apply the new status.",
+      "required": ["id", "item", "status"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "item": { "enum": ["suite", "test"] },
+        "status": { "$ref": "#/$defs/status" },
+        "message": { "type": "string" }
+      }
+    },
+    "resultfile.created": {
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["OUTPUT", "LOG", "REPORT", "XUNIT", "DEBUG"] },
+        "path": { "type": "string" }
+      }
+    }
+  }
+}

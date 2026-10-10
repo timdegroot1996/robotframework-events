@@ -1,0 +1,15 @@
+spike/
+docs/
+demo/
+.vscode/
+__pycache__/
+*.pyc
+robot_results.db
+results/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.robotdashboard/

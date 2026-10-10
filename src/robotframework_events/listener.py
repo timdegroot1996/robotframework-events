@@ -1,0 +1,428 @@
+"""Listener v3 that emits execution events as JSON Lines (format v1, see events-v1.schema.json)."""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import platform
+import re
+import sys
+import time
+import uuid
+from collections.abc import Callable
+from pathlib import Path
+from typing import IO, Any
+
+from robot import result, running
+from robot.version import VERSION as ROBOT_VERSION
+
+FORMAT_VERSION = 1
+MIN_RF_VERSION = (7, 5)
+
+EventCallback = Callable[[dict[str, Any]], None]
+
+_callbacks: list[EventCallback] = []
+
+# IF/ELSE and TRY/EXCEPT roots are not emitted; their branches are numbered and
+# parented as children of the root's parent, as in output.xml and log.html.
+ROOT_TYPES = frozenset({"IF/ELSE ROOT", "TRY/EXCEPT ROOT"})
+CONTROL_TYPES = frozenset(
+    {
+        "FOR",
+        "ITERATION",
+        "IF",
+        "ELSE IF",
+        "ELSE",
+        "TRY",
+        "EXCEPT",
+        "FINALLY",
+        "WHILE",
+        "GROUP",
+        "VAR",
+        "RETURN",
+        "BREAK",
+        "CONTINUE",
+        "ERROR",
+    }
+)
+LEVELS = {"TRACE": 0, "DEBUG": 1, "INFO": 2, "WARN": 3, "ERROR": 4, "FAIL": 4, "SKIP": 2}
+MAX_ARGS = 20
+MAX_ARG_LENGTH = 200
+
+
+def add_callback(callback: EventCallback) -> None:
+    """Call ``callback(event)`` for every event emitted by any Listener in this process."""
+    if callback not in _callbacks:
+        _callbacks.append(callback)
+
+
+def remove_callback(callback: EventCallback) -> None:
+    if callback in _callbacks:
+        _callbacks.remove(callback)
+
+
+def _check_robot_version(version: str) -> None:
+    match = re.match(r"(\d+)\.(\d+)", version)
+    if match and (int(match.group(1)), int(match.group(2))) < MIN_RF_VERSION:
+        raise RuntimeError(
+            f"robotframework-events requires Robot Framework {'.'.join(map(str, MIN_RF_VERSION))} or newer, "
+            f"found {version}."
+        )
+
+
+def _stats(suite: result.TestSuite) -> dict[str, int]:
+    s = suite.statistics
+    return {"total": s.total, "passed": s.passed, "failed": s.failed, "skipped": s.skipped}
+
+
+def _bool(value: Any) -> bool:
+    return str(value).strip().lower() not in ("false", "off", "no", "0", "none", "")
+
+
+def _normalize(text: str) -> str:
+    return "".join(str(text).lower().split())
+
+
+def _short(value: Any, limit: int = MAX_ARG_LENGTH) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _short_list(values: Any) -> list[str] | None:
+    if not values:
+        return None
+    items = [_short(v) for v in list(values)[:MAX_ARGS]]
+    if len(values) > MAX_ARGS:
+        items.append("…")
+    return items
+
+
+class _Frame:
+    """One open suite, test or step on the stack.
+
+    ``id`` is None for IF/TRY roots; ``owner`` then points to the frame whose
+    child counter the root's branches share. ``emitted`` is False for roots and
+    for structures hidden with ``structures=false``.
+    """
+
+    __slots__ = ("children", "emitted", "id", "owner", "pid", "source")
+
+    def __init__(
+        self,
+        id: str | None,
+        source: str | None,
+        parent: _Frame | None,
+        owner: _Frame | None = None,
+        emitted: bool = True,
+    ) -> None:
+        self.id = id
+        self.children = 0
+        self.owner = owner
+        self.source = source
+        self.emitted = emitted
+        # id of the nearest emitted frame, this one included: the parent of anything started inside it
+        self.pid: str | None = id if emitted else (parent.pid if parent else None)
+
+
+class Listener:
+    """Writes one JSON object per line for the run, suites, tests, steps and log messages.
+
+    Arguments (``Listener:name=value:name=value``):
+
+    - ``file``: path of the JSONL file. Default ``${OUTPUT DIR}/events.jsonl``.
+      ``NONE`` disables the file (callbacks still get events).
+    - ``level``: minimum level of logged messages, default ``INFO``.
+    - ``messages``: emit ``message.logged`` events, default ``true``.
+    - ``args``: include keyword arguments, default ``true``.
+    - ``structures``: emit control structures (FOR, IF, TRY, ...), default ``true``.
+      Keywords inside them are still emitted, parented to the nearest emitted step.
+    - ``max_text``: maximum length of message texts, default 4096.
+    """
+
+    ROBOT_LISTENER_API_VERSION = 3
+    # Run after listeners that modify results.
+    ROBOT_LISTENER_PRIORITY = -1000
+
+    def __init__(
+        self,
+        file: str | None = None,
+        level: str = "INFO",
+        messages: str = "true",
+        args: str = "true",
+        structures: str = "true",
+        max_text: str = "4096",
+    ) -> None:
+        _check_robot_version(ROBOT_VERSION)
+        self._file_option = file
+        self._min_level = LEVELS.get(level.upper(), 2)
+        self._messages = _bool(messages)
+        self._args = _bool(args)
+        self._structures = _bool(structures)
+        self._max_text = int(max_text)
+        self._out: IO[str] | None = None
+        self._seq = 0
+        self._run_id = str(uuid.uuid4())
+        self._started = False
+        self._root: result.TestSuite | None = None
+        self._stack: list[_Frame] = []
+        # last emitted status of every suite and test, to detect changes made by suite teardowns
+        self._statuses: dict[str, str] = {}
+        self._encode = json.JSONEncoder(ensure_ascii=False, separators=(",", ":"), default=str).encode
+        # data.source walks up the model on every call; siblings share their parent, so cache per parent
+        self._source_parent: Any = None
+        self._source_value: str | None = None
+
+    # --- emitting -------------------------------------------------------------
+
+    def _emit(self, type_: str, **fields: Any) -> None:
+        self._seq += 1
+        event: dict[str, Any] = {"v": FORMAT_VERSION, "seq": self._seq, "t": round(time.time(), 3), "type": type_}
+        for key, value in fields.items():
+            if value is not None and value != "":
+                event[key] = value
+
+        if self._out is not None:
+            try:
+                self._out.write(self._encode(event) + "\n")
+            except OSError as e:
+                print(f"robotframework-events: disabling file output: {e}", file=sys.__stderr__)
+                self._out = None
+
+        for callback in list(_callbacks):
+            try:
+                callback(event)
+            except Exception as e:  # never raise into Robot Framework
+                print(f"robotframework-events: removing failing callback: {e}", file=sys.__stderr__)
+                remove_callback(callback)
+
+    def _flush(self) -> None:
+        if self._out is not None:
+            with contextlib.suppress(OSError):
+                self._out.flush()
+
+    def _open_file(self) -> None:
+        if self._file_option and self._file_option.upper() == "NONE":
+            return
+        if self._file_option:
+            path = Path(self._file_option)
+        else:
+            from robot.libraries.BuiltIn import BuiltIn
+
+            try:
+                outdir = BuiltIn().get_variable_value("${OUTPUT DIR}") or os.getcwd()
+            except Exception:
+                outdir = os.getcwd()
+            path = Path(outdir) / "events.jsonl"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # buffered; flushed after every test and at close so tailing readers see progress
+            self._out = open(path, "w", encoding="utf-8", buffering=1 << 16)  # noqa: SIM115 closed in close()
+        except OSError as e:
+            print(f"robotframework-events: cannot open {path}: {e}", file=sys.__stderr__)
+
+    def _parent_id(self) -> str | None:
+        return self._stack[-1].pid if self._stack else None
+
+    def _data_source(self, data: Any) -> str | None:
+        parent = getattr(data, "parent", None)
+        if parent is None or parent is not self._source_parent:
+            try:
+                source = data.source
+            except Exception:
+                source = None
+            self._source_parent = parent
+            self._source_value = str(source) if source else None
+        return self._source_value
+
+    # --- suites and tests -------------------------------------------------------
+
+    def start_suite(self, data: running.TestSuite, result: result.TestSuite) -> None:
+        if not self._started:
+            self._started = True
+            self._root = result
+            self._open_file()
+            self._emit(
+                "run.started",
+                run=self._run_id,
+                rf=ROBOT_VERSION,
+                python=platform.python_version(),
+                pid=os.getpid(),
+                cwd=os.getcwd(),
+            )
+        source = str(data.source) if data.source else None
+        self._emit(
+            "suite.started",
+            id=data.id,
+            parent=self._parent_id(),
+            name=data.name,
+            longname=data.full_name,
+            source=source,
+            tests=data.test_count,
+        )
+        self._stack.append(_Frame(data.id, source, self._stack[-1] if self._stack else None))
+
+    def end_suite(self, data: running.TestSuite, result: result.TestSuite) -> None:
+        self._stack.pop()
+        if result.has_teardown and result.teardown.status in ("FAIL", "SKIP"):
+            self._emit_status_changes(result)
+        self._statuses[data.id] = result.status
+        self._emit(
+            "suite.ended",
+            id=data.id,
+            status=result.status,
+            message=result.message,
+            elapsed=round(result.elapsed_time.total_seconds(), 3),
+            stats=_stats(result),
+        )
+
+    def _emit_status_changes(self, suite: result.TestSuite) -> None:
+        """A failing or skipping suite teardown changes the status of tests and suites that already ended."""
+        for child in suite.suites:
+            if self._statuses.get(child.id, child.status) != child.status:
+                self._statuses[child.id] = child.status
+                self._emit("status.changed", id=child.id, item="suite", status=child.status, message=child.message)
+            self._emit_status_changes(child)
+        for test in suite.tests:
+            if self._statuses.get(test.id, test.status) != test.status:
+                self._statuses[test.id] = test.status
+                self._emit("status.changed", id=test.id, item="test", status=test.status, message=test.message)
+
+    def start_test(self, data: running.TestCase, result: result.TestCase) -> None:
+        source = str(data.source) if data.source else None
+        self._emit(
+            "test.started",
+            id=data.id,
+            parent=self._parent_id(),
+            name=data.name,
+            longname=data.full_name,
+            source=source,
+            lineno=data.lineno,
+            tags=list(data.tags) or None,
+        )
+        self._stack.append(_Frame(data.id, source, self._stack[-1] if self._stack else None))
+
+    def end_test(self, data: running.TestCase, result: result.TestCase) -> None:
+        self._stack.pop()
+        self._statuses[data.id] = result.status
+        self._emit(
+            "test.ended",
+            id=data.id,
+            status=result.status,
+            message=result.message,
+            elapsed=round(result.elapsed_time.total_seconds(), 3),
+        )
+        self._flush()
+
+    # --- steps ------------------------------------------------------------------
+
+    def start_body_item(self, data: Any, result: Any) -> None:
+        parent = self._stack[-1] if self._stack else _Frame("s1", None, None)
+        kind = result.type
+
+        if kind in ROOT_TYPES:
+            self._stack.append(_Frame(None, parent.source, parent, owner=parent.owner or parent, emitted=False))
+            return
+
+        counter = parent.owner or parent
+        counter.children += 1
+        item_id = f"{counter.id}-k{counter.children}"
+        source = self._data_source(data)
+
+        if kind in CONTROL_TYPES and not self._structures:
+            # ids stay exact, but the structure is hidden: its children attach to the nearest emitted step
+            self._stack.append(_Frame(item_id, source or parent.source, parent, emitted=False))
+            return
+
+        self._emit(
+            "step.started",
+            id=item_id,
+            parent=parent.pid,
+            kind=kind,
+            source=source if source and source != parent.source else None,
+            lineno=getattr(data, "lineno", None),
+            **self._step_fields(kind, result),
+        )
+        self._stack.append(_Frame(item_id, source or parent.source, parent))
+
+    def _step_fields(self, kind: str, result: Any) -> dict[str, Any]:
+        if kind in ("KEYWORD", "SETUP", "TEARDOWN"):
+            return {
+                "name": result.name,
+                "owner": result.owner,
+                "args": _short_list(result.args) if self._args else None,
+                "assign": list(result.assign) or None,
+                # children of a flattened keyword are emitted live but are not in output.xml or log.html
+                "flatten": True if any(_normalize(t) == "robot:flatten" for t in result.tags) else None,
+            }
+        if kind == "FOR":
+            return {"assign": list(result.assign), "flavor": result.flavor, "values": _short_list(result.values)}
+        if kind == "ITERATION":
+            assign = getattr(result, "assign", None)
+            return {"assign": {k: _short(v) for k, v in assign.items()} if assign else None}
+        if kind in ("IF", "ELSE IF"):
+            return {"condition": result.condition}
+        if kind == "WHILE":
+            return {"condition": result.condition, "limit": result.limit}
+        if kind == "EXCEPT":
+            return {"patterns": list(result.patterns), "assign": result.assign}
+        if kind == "GROUP":
+            return {"name": result.name}
+        if kind == "VAR":
+            return {"name": result.name, "values": _short_list(result.value), "scope": result.scope}
+        if kind in ("RETURN", "ERROR"):
+            return {"values": _short_list(result.values)}
+        return {}
+
+    def end_body_item(self, data: Any, result: Any) -> None:
+        frame = self._stack.pop()
+        if not frame.emitted:
+            return
+        self._emit(
+            "step.ended",
+            id=frame.id,
+            status=result.status,
+            message=result.message,
+            elapsed=round(result.elapsed_time.total_seconds(), 4),
+        )
+
+    # --- messages and result files ---------------------------------------------------
+
+    def log_message(self, message: Any) -> None:
+        if not self._messages or LEVELS.get(message.level, 2) < self._min_level:
+            return
+        text = message.message or ""
+        truncated = len(text) > self._max_text
+        self._emit(
+            "message.logged",
+            parent=self._parent_id(),  # message.parent is not set yet when listeners are called
+            level=message.level,
+            text=text[: self._max_text] if truncated else text,
+            truncated=True if truncated else None,
+            html=True if message.html else None,
+        )
+
+    def _result_file(self, kind: str, path: Any) -> None:
+        self._emit("resultfile.created", kind=kind, path=str(path))
+
+    def output_file(self, path: Any) -> None:
+        self._result_file("OUTPUT", path)
+
+    def log_file(self, path: Any) -> None:
+        self._result_file("LOG", path)
+
+    def report_file(self, path: Any) -> None:
+        self._result_file("REPORT", path)
+
+    def xunit_file(self, path: Any) -> None:
+        self._result_file("XUNIT", path)
+
+    def debug_file(self, path: Any) -> None:
+        self._result_file("DEBUG", path)
+
+    def close(self) -> None:
+        if self._root is not None:
+            self._emit("run.ended", status=self._root.status, stats=_stats(self._root))
+        if self._out is not None:
+            self._out.close()
+            self._out = None

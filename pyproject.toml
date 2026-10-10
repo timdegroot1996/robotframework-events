@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robotframework-events"
+version = "0.0.1"
+description = "Robot Framework listener that writes execution events as JSON Lines"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Tim de Groot" }]
+requires-python = ">=3.10"
+dependencies = ["robotframework>=7.5"]
+keywords = ["robotframework", "listener", "events", "jsonl", "testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Tool",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "jsonschema>=4.18", "ruff>=0.15", "mypy>=1.15"]
+
+[project.urls]
+Homepage = "https://github.com/timdegroot1996/robotframework-events"
+Issues = "https://github.com/timdegroot1996/robotframework-events/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+robotframework_events = ["py.typed", "*.schema.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "bench: overhead benchmark (run with -m bench)",
+    "e2e: end-to-end run through robotcode's debugger (run with -m e2e)",
+]
+addopts = "-m 'not bench and not e2e'"
+filterwarnings = ["ignore::UserWarning:robot.result.modeldeprecation"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["spike", "build", "demo"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["robotframework_events", "conftest"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["robot", "robot.*"]
+follow_untyped_imports = true
