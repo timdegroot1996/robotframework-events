@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 import pytest
+from robot import result as robot_result
 from robot.api import ExecutionResult, ResultVisitor
 
 from conftest import DATA, check_format, run_with_listener
@@ -42,17 +43,62 @@ ATEST_SUITES = [
 ]
 
 
-def emitted_parent(item):
-    """The id of the nearest ancestor that is emitted (IF/TRY roots are skipped)."""
-    parent = item.parent
-    while getattr(parent, "type", None) in ROOTS:
-        parent = parent.parent
-    return parent.id
+class RobotIds:
+    """Robot Framework's step ids (``item.id``), computed once per parent.
+
+    ``item.id`` rebuilds and searches the parent's whole step list on every call (``Body._get_id``),
+    which is quadratic: it made ``running/while`` (thousands of iterations) take minutes instead of seconds.
+    This follows the same algorithm with one step list per parent, and checks the first two and
+    the last step of every parent against ``item.id`` itself.
+    """
+
+    def __init__(self):
+        self._ids = {}  # id(item) -> step id
+        self._steps = {}  # id(parent) -> {id(step): index}, number of steps
+
+    def step_id(self, item):
+        key = id(item)
+        if key not in self._ids:
+            parent = item.parent
+            # IF/TRY branches leave their root out of the parent part (IfBranch.id, TryBranch.id)
+            if getattr(parent, "type", None) in ROOTS and parent.parent:
+                parent = parent.parent
+            if not parent:
+                self._ids[key] = "k1"
+            else:
+                index, count = self._index(parent, item)
+                pid = self.parent_id(parent)
+                self._ids[key] = f"{pid}-k{index + 1}" if pid else f"k{index + 1}"
+                if index < 2 or index == count - 1:
+                    assert self._ids[key] == item.id
+        return self._ids[key]
+
+    def parent_id(self, parent):
+        if getattr(parent, "type", None) in ROOTS:
+            return None
+        if isinstance(parent, (robot_result.TestSuite, robot_result.TestCase)):
+            return parent.id
+        return self.step_id(parent)
+
+    def _index(self, parent, item):
+        key = id(parent)
+        if key not in self._steps:
+            steps = []
+            if getattr(parent, "has_setup", False):
+                steps.append(parent.setup)
+            if hasattr(parent, "body"):
+                steps.extend(parent.body.flatten(messages=False))
+            if getattr(parent, "has_teardown", False):
+                steps.append(parent.teardown)
+            self._steps[key] = ({id(step): index for index, step in enumerate(steps)}, len(steps))
+        indexes, count = self._steps[key]
+        return indexes.get(id(item), count), count
 
 
 class Expected(ResultVisitor):
     def __init__(self):
         self.items = []
+        self.ids = RobotIds()
 
     def start_suite(self, suite):
         self.items.append(("suite", suite.id, suite.parent.id if suite.parent else None, suite.status))
@@ -62,7 +108,14 @@ class Expected(ResultVisitor):
 
     def start_body_item(self, item):
         if item.type not in ROOTS and item.type != "MESSAGE":
-            self.items.append((item.type, item.id, emitted_parent(item), item.status))
+            self.items.append((item.type, self.ids.step_id(item), self.emitted_parent(item), item.status))
+
+    def emitted_parent(self, item):
+        """The id of the nearest ancestor that is emitted (IF/TRY roots are skipped)."""
+        parent = item.parent
+        while getattr(parent, "type", None) in ROOTS:
+            parent = parent.parent
+        return self.ids.parent_id(parent)
 
     def visit_message(self, message):
         pass
