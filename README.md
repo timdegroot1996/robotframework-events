@@ -13,7 +13,9 @@ robot --listener "robotframework_events.Listener;file=ev.jsonl;level=DEBUG" test
 ```
 
 Listener arguments: `file` (`NONE` for no file), `level` (minimum message level, default `INFO`),
-`messages`, `args`, `structures` (each `true`/`false`, default `true`) and `max_text` (default 4096).
+`messages`, `args`, `structures` (each `true`/`false`, default `true`), `max_text` (default 4096) and
+`flush` (seconds between flushes of the file while the run goes on, default 0.1, so `rfevents tail -f` and
+editors that follow the file see the keyword that is running; `0` flushes after every test only).
 
 ## Event format
 

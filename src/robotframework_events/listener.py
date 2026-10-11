@@ -8,12 +8,13 @@ import os
 import platform
 import re
 import sys
+import threading
 import time
 import uuid
 from collections.abc import Callable
 from json.encoder import encode_basestring as _quote
 from pathlib import Path
-from typing import IO, Any
+from typing import Any, BinaryIO
 
 from robot import result, running
 from robot.version import VERSION as ROBOT_VERSION
@@ -252,6 +253,8 @@ class Listener:
     - ``structures``: emit control structures (FOR, IF, TRY, ...), default ``true``.
       Keywords inside them are still emitted, parented to the nearest emitted step.
     - ``max_text``: maximum length of message texts, default 4096.
+    - ``flush``: seconds between flushes of the file while events come in, default 0.1, so a reader that
+      follows the file sees the keyword that is running. ``0`` flushes only after every test and at the end.
     """
 
     ROBOT_LISTENER_API_VERSION = 3
@@ -266,6 +269,7 @@ class Listener:
         args: str = "true",
         structures: str = "true",
         max_text: str = "4096",
+        flush: str = "0.1",
     ) -> None:
         _check_robot_version(ROBOT_VERSION)
         self._file_option = file
@@ -274,7 +278,12 @@ class Listener:
         self._args = _bool(args)
         self._structures = _bool(structures)
         self._max_text = int(max_text)
-        self._out: IO[str] | None = None
+        self._flush_interval = float(flush)
+        # binary: BufferedWriter is thread-safe, so the flush thread needs no lock on the write path
+        self._out: BinaryIO | None = None
+        self._dirty = False
+        self._stop_flushing = threading.Event()
+        self._flusher: threading.Thread | None = None
         self._seq = 0
         self._run_id = str(uuid.uuid4())
         self._started = False
@@ -310,7 +319,8 @@ class Listener:
                 except (TypeError, ValueError, AttributeError):  # an unexpected value: use the encoder
                     line = None
             try:
-                self._out.write((line if line is not None else self._encode(event)) + "\n")
+                self._out.write(((line if line is not None else self._encode(event)) + "\n").encode("utf-8"))
+                self._dirty = True
             except OSError as e:
                 print(f"robotframework-events: disabling file output: {e}", file=sys.__stderr__)
                 self._out = None
@@ -325,9 +335,16 @@ class Listener:
                 remove_callback(callback)
 
     def _flush(self) -> None:
-        if self._out is not None:
-            with contextlib.suppress(OSError):
-                self._out.flush()
+        out = self._out
+        if out is not None:
+            self._dirty = False
+            with contextlib.suppress(OSError, ValueError):  # ValueError: closed meanwhile
+                out.flush()
+
+    def _flush_loop(self) -> None:
+        while not self._stop_flushing.wait(self._flush_interval):
+            if self._dirty:
+                self._flush()
 
     def _output_locations(self) -> tuple[str, str | None]:
         """${OUTPUT DIR} and ${OUTPUT FILE} of the run (cwd and None when they cannot be read)."""
@@ -346,10 +363,14 @@ class Listener:
         path = Path(self._file_option) if self._file_option else default_events_file(outdir, output)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            # buffered; flushed after every test and at close so tailing readers see progress
-            self._out = open(path, "w", encoding="utf-8", buffering=1 << 16)  # noqa: SIM115 closed in close()
+            # buffered; flushed every `flush` seconds, after every test and at close so tailing readers see progress
+            self._out = open(path, "wb", buffering=1 << 16)  # noqa: SIM115 closed in close()
         except OSError as e:
             print(f"robotframework-events: cannot open {path}: {e}", file=sys.__stderr__)
+            return
+        if self._flush_interval > 0:
+            self._flusher = threading.Thread(target=self._flush_loop, name="robotframework-events-flush", daemon=True)
+            self._flusher.start()
 
     def _parent_id(self) -> str | None:
         return self._stack[-1].pid if self._stack else None
@@ -536,6 +557,10 @@ class Listener:
     def close(self) -> None:
         if self._root is not None:
             self._emit("run.ended", status=self._root.status, stats=_stats(self._root))
+        if self._flusher is not None:
+            self._stop_flushing.set()
+            self._flusher.join()
+            self._flusher = None
         if self._out is not None:
             self._out.close()
             self._out = None

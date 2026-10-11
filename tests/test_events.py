@@ -271,3 +271,29 @@ def test_default_events_file_names():
     assert default_events_file("results", str(out / "output-20261010.json")) == out / "events-20261010.jsonl"
     assert default_events_file("results", str(out / "smoke.xml")) == out / "smoke.jsonl"
     assert default_events_file("results", "NONE") == out / "events.jsonl"
+
+
+# a keyword that copies the events file while it runs, so the test sees what a follower would see
+FLUSH_PROBE = """\
+import time
+from pathlib import Path
+
+
+def wait_and_read_events(path):
+    time.sleep(0.5)
+    Path(path + ".seen").write_text(Path(path).read_text(encoding="utf-8"), encoding="utf-8")
+"""
+
+
+@pytest.mark.parametrize(("flush", "visible"), [("0.1", True), ("0", False)])
+def test_running_keyword_is_flushed_while_it_runs(tmp_path: Path, flush: str, visible: bool):
+    (tmp_path / "flushprobe.py").write_text(FLUSH_PROBE, encoding="utf-8")
+    events_file = tmp_path / "events.jsonl"
+    (tmp_path / "probe.robot").write_text(
+        f"*** Settings ***\nLibrary    {(tmp_path / 'flushprobe.py').as_posix()}\n\n"
+        f"*** Test Cases ***\nProbe\n    Wait And Read Events    {events_file.as_posix()}\n",
+        encoding="utf-8",
+    )
+    run_with_listener(tmp_path, [tmp_path / "probe.robot"], f"flush={flush}")
+    seen = (tmp_path / "events.jsonl.seen").read_text(encoding="utf-8")
+    assert ('"name":"Wait And Read Events"' in seen) is visible
