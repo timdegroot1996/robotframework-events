@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.5.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.5.0) - 2026-10-12
+
+### Added
+- `flush` listener argument (default `0.1` seconds): the events file is flushed regularly while the run goes on, so `rfevents tail -f` and editors that follow the file see the keyword that is running, not only finished tests. `flush=0` keeps the old behaviour (flushed after every test)
+- `pabot` in `run.started` (format v1, new optional field): for one item of a pabot run, its queue index, executor pool id, number of processes and whether it is the last item pabot starts, so viewers can merge the items of one pabot run
+
+### Changed
+- The events file is written with LF line endings on every operating system (it used CRLF on Windows)
+
+---
+
 ## [0.4.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.4.0) - 2026-10-11
 
 ### Added
