@@ -87,7 +87,8 @@ class RobotIds:
             if getattr(parent, "has_setup", False):
                 steps.append(parent.setup)
             if hasattr(parent, "body"):
-                steps.extend(parent.body.flatten(messages=False))
+                # flatten(messages=False) needs RF 7.2
+                steps.extend(step for step in parent.body.flatten() if step.type != "MESSAGE")
             if getattr(parent, "has_teardown", False):
                 steps.append(parent.teardown)
             self._steps[key] = ({id(step): index for index, step in enumerate(steps)}, len(steps))
