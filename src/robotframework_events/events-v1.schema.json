@@ -55,6 +55,17 @@
         "outputdir": {
           "description": "The run's output directory; log.html links screenshots and other files relative to it.",
           "type": "string"
+        },
+        "pabot": {
+          "description": "Set when the run is one item of a pabot run: its queue index, executor pool id, number of processes and whether it is the last item pabot starts. Viewers merge the items of one pabot run.",
+          "type": "object",
+          "required": ["index"],
+          "properties": {
+            "index": { "type": "integer", "minimum": 0 },
+            "pool": { "type": "integer", "minimum": 0 },
+            "processes": { "type": "integer", "minimum": 1 },
+            "last": { "type": "boolean" }
+          }
         }
       }
     },

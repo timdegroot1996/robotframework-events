@@ -357,6 +357,28 @@ class Listener:
             return os.getcwd(), None
         return str(outdir), output
 
+    def _pabot(self) -> dict[str, Any] | None:
+        """The pabot item this process runs (pabot passes it as variables), None outside pabot."""
+        from robot.libraries.BuiltIn import BuiltIn
+
+        try:
+            index = BuiltIn().get_variable_value("${PABOTQUEUEINDEX}")
+            if index is None:
+                return None
+            pool = BuiltIn().get_variable_value("${PABOTEXECUTIONPOOLID}")
+            processes = BuiltIn().get_variable_value("${PABOTNUMBEROFPROCESSES}")
+            last = BuiltIn().get_variable_value("${PABOTISLASTEXECUTIONINPOOL}")
+            item: dict[str, Any] = {"index": int(index)}
+            if pool is not None:
+                item["pool"] = int(pool)
+            if processes is not None:
+                item["processes"] = int(processes)
+            if last is not None:
+                item["last"] = str(last) == "1"
+            return item
+        except Exception:
+            return None
+
     def _open_file(self, outdir: str, output: str | None) -> None:
         if self._file_option and self._file_option.upper() == "NONE":
             return
@@ -403,6 +425,8 @@ class Listener:
                 cwd=os.getcwd(),
                 # log.html links screenshots and other files relative to it
                 outputdir=outdir,
+                # viewers merge the items of one pabot run into one run
+                pabot=self._pabot(),
             )
         source = str(data.source) if data.source else None
         self._emit(

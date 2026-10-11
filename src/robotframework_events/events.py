@@ -48,7 +48,8 @@ class Event:
 
 @dataclass(slots=True, kw_only=True)
 class RunStarted(Event):
-    """``python``, ``pid`` and ``cwd`` are missing in events converted from a result file."""
+    """``python``, ``pid`` and ``cwd`` are missing in events converted from a result file. ``pabot`` is set
+    for one item of a pabot run: ``index``, ``pool``, ``processes`` and ``last``."""
 
     TYPE: ClassVar[str] = "run.started"
 
@@ -58,6 +59,7 @@ class RunStarted(Event):
     pid: int | None = None
     cwd: str | None = None
     outputdir: str | None = None
+    pabot: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, kw_only=True)

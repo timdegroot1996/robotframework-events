@@ -297,3 +297,18 @@ def test_running_keyword_is_flushed_while_it_runs(tmp_path: Path, flush: str, vi
     run_with_listener(tmp_path, [tmp_path / "probe.robot"], f"flush={flush}")
     seen = (tmp_path / "events.jsonl.seen").read_text(encoding="utf-8")
     assert ('"name":"Wait And Read Events"' in seen) is visible
+
+
+def test_pabot_item_is_described_in_run_started(tmp_path: Path):
+    variables = [
+        "PABOTQUEUEINDEX:3",
+        "PABOTEXECUTIONPOOLID:1",
+        "PABOTNUMBEROFPROCESSES:2",
+        "PABOTISLASTEXECUTIONINPOOL:1",
+    ]
+    events, _ = run_with_listener(tmp_path, [DATA / "sample.robot"], variable=variables)
+    assert events[0]["pabot"] == {"index": 3, "pool": 1, "processes": 2, "last": True}
+
+
+def test_no_pabot_field_outside_pabot(sample_events):
+    assert "pabot" not in sample_events[0]
