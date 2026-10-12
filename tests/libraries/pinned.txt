@@ -1,0 +1,15 @@
+# Versions checked by hand (2026-10-13); the "pinned" jobs of .github/workflows/libraries.yml install these,
+# the "latest" jobs the newest releases. Update after a library release has passed the latest job.
+robotframework==7.5
+pillow==12.3.0
+robotframework-browser==20.6.0
+robotframework-seleniumlibrary==6.9.0
+selenium==4.51.0
+qweb==3.8.3
+rpaframework==33.0.2
+rpaframework-windows==11.0.0
+robotframework-appiumlibrary==3.2.1
+Appium-Python-Client==6.0.7
+robotframework-flaui==5.2.1
+robotframework-whitelibrary==1.6.0
+robotframework-puppeteerlibrary==3.1.10

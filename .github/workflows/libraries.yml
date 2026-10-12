@@ -1,0 +1,151 @@
+# Step screenshots with the most downloaded libraries, once a week: every suite runs without and with
+# screenshots (tests/libraries/check.py). "pinned" installs the versions in tests/libraries/pinned.txt,
+# "latest" the newest releases. A failed scheduled run opens an issue (or comments on the open one).
+name: Libraries
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  libraries:
+    strategy:
+      fail-fast: false
+      matrix:
+        versions: [pinned, latest]
+        group:
+          - name: web
+            os: ubuntu-latest
+            python: "3.12"
+            packages: robotframework-browser robotframework-seleniumlibrary qweb
+            setup: rfbrowser init chromium
+            # QWeb needs a display, also headless
+            prefix: xvfb-run -a
+            suites: browser selenium qweb
+          - name: rpaframework
+            os: ubuntu-latest
+            python: "3.11"
+            packages: rpaframework robotframework-browser
+            setup: rfbrowser init chromium
+            suites: rpa-selenium rpa-playwright
+          - name: puppeteer
+            os: ubuntu-22.04
+            python: "3.10"
+            packages: robotframework-puppeteerlibrary
+            setup: python -m playwright install --with-deps chromium
+            suites: puppeteer
+          - name: windows
+            os: windows-latest
+            python: "3.11"
+            packages: robotframework-flaui rpaframework-windows
+            suites: flaui rpa-windows
+          # WhiteLibrary needs Python 3.10 or older (inspect.getargspec)
+          - name: white
+            os: windows-latest
+            python: "3.10"
+            packages: robotframework-whitelibrary
+            suites: white
+    name: ${{ matrix.group.name }} (${{ matrix.versions }})
+    runs-on: ${{ matrix.group.os }}
+    env:
+      RESULTS_DIR: ${{ github.workspace }}/results
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.group.python }}
+      - name: Install
+        run: |
+          constraints=""
+          if [ "${{ matrix.versions }}" = pinned ]; then constraints="-c tests/libraries/pinned.txt"; fi
+          pip install $constraints -e .[screen] ${{ matrix.group.packages }}
+          ${{ matrix.group.setup }}
+          pip list
+      - name: Check
+        run: ${{ matrix.group.prefix }} python tests/libraries/check.py ${{ matrix.group.suites }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.group.name }}-${{ matrix.versions }}
+          path: results
+          if-no-files-found: ignore
+
+  android:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - versions: pinned
+            appium: appium@3.8
+          - versions: latest
+            appium: appium@latest
+    name: appium android (${{ matrix.versions }})
+    runs-on: ubuntu-latest
+    env:
+      RESULTS_DIR: ${{ github.workspace }}/results
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install
+        run: |
+          constraints=""
+          if [ "${{ matrix.versions }}" = pinned ]; then constraints="-c tests/libraries/pinned.txt"; fi
+          pip install $constraints -e .[screen] robotframework-appiumlibrary
+          npm install -g ${{ matrix.appium }}
+          appium driver install uiautomator2
+          pip list
+      - name: Check
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tests/libraries/android.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-android-${{ matrix.versions }}
+          path: results*
+          if-no-files-found: ignore
+
+  report:
+    needs: [libraries, android]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create library-check --color d93f0b --description "Weekly library check failed" --force
+          body="The weekly check of step screenshots with real libraries failed: $RUN (summary table per job)."
+          number=$(gh issue list --state open --label library-check --json number --jq '.[0].number')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "Weekly library check failed" --label library-check --body "$body"
+          fi

@@ -1,0 +1,45 @@
+name: Step screenshots problem
+description: A library gets no step screenshots, wrong ones, or a test behaves differently with screenshots on.
+labels: [screenshots]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Libraries other than the ones checked every week are fixed when someone reports a problem, so this helps.
+  - type: input
+    id: library
+    attributes:
+      label: Library and version
+      description: "`pip show <library>`, for example robotframework-seleniumlibrary 6.9.0"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: robotframework-events, Robot Framework, Python and OS
+      description: "For example: robotframework-events 0.6.0, Robot Framework 7.5, Python 3.12, Windows 11"
+    validations:
+      required: true
+  - type: textarea
+    id: warning
+    attributes:
+      label: Warning
+      description: |
+        The `screenshot.unavailable` warning, if there is one: shown in the header of the dashboard's Live page, or the line with
+        `"type": "screenshot.unavailable"` in `events.jsonl`.
+      render: json
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: |
+        How screenshots are switched on: the listener argument (`screenshots=actions;screenshot_libraries=...`), the
+        `[tool.robotcode-dashboard.screenshots]` table in robot.toml, or the VS Code settings.
+      render: toml
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Which keywords got no, blank or wrong screenshots, or what changed in the test results. A small suite that shows it helps most.
+    validations:
+      required: true

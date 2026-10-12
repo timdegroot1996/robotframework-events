@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Lab Shop</title>
+<style>body{font-family:sans-serif;margin:40px;background:#eef6ff} #cart{font-size:28px;color:#0b5ed7} .item{margin:12px 0}</style></head>
+<body>
+<h1 id="title">Lab Shop</h1>
+<div class="item">Backpack <button id="add-backpack" onclick="add()">Add to cart</button></div>
+<div class="item">Bike light <button id="add-light" onclick="add()">Add to cart</button></div>
+<div>Cart: <span id="cart">0</span></div>
+<div class="item"><input id="name" placeholder="Your name"> <button id="ask" onclick="document.getElementById('answer').textContent = confirm('Sure?') ? 'yes' : 'no'">Confirm</button> <span id="answer"></span></div>
+<a id="checkout" href="checkout.html">Checkout</a>
+<script>let n = 0; function add() { n++; document.getElementById('cart').textContent = n; document.body.style.background = ['#eef6ff','#fff3cd','#d1e7dd','#f8d7da'][n % 4]; }</script>
+</body></html>
