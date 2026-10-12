@@ -3,8 +3,10 @@
 A run that crashed or was killed leaves no ``output.xml``, but its events file has every suite,
 test, step and message up to the moment it stopped. :func:`rebuild` turns those events into a
 Robot Framework result, so the run can still go to a history (robotframework-dashboard) or into
-``rebot``. What did not finish is failed with :data:`NOT_FINISHED`; tests that never started
-are left out.
+``rebot``. As when Robot Framework stops a run itself, a run that did not finish fails: what was
+running fails with :data:`NOT_FINISHED`, the tests it planned but never started fail with
+:data:`NOT_STARTED`, and the tests of a suite whose teardown did not finish fail like after a
+failed suite teardown.
 """
 
 from __future__ import annotations
@@ -22,6 +24,12 @@ from .state import RUNNING, Node, RunState
 NOT_FINISHED = "Not finished: the run stopped before this ended."
 """The message of tests and steps that were still running when the run stopped."""
 
+NOT_STARTED = "Not run: the run stopped before this test started."
+"""The message of planned tests that never started."""
+
+PARENT_NOT_FINISHED = "Parent suite did not finish: the run stopped before it ended."
+"""The message of tests whose suite did not finish (teardown not run or not finished)."""
+
 RUN_NOT_FINISHED = "The run did not finish. This result is rebuilt from its execution events."
 """The message of the top-level suite of a run that did not end."""
 
@@ -36,6 +44,8 @@ def rebuild(events: Iterable[Event]) -> Result:
     suite = builder.suite(state.nodes[state.root])
     if state.status == RUNNING:
         suite.message = RUN_NOT_FINISHED
+        builder.fail_not_started(suite)
+        builder.fail_unfinished_suites(suite)
     result = Result()  # the argument for the suite was renamed after Robot Framework 7.0
     result.suite = suite
     if state.run is not None:
@@ -62,6 +72,50 @@ class _Builder:
     def __init__(self, state: RunState, end: float) -> None:
         self.state = state
         self.end = end
+        # result suites of the suite nodes that did not finish, innermost last
+        self.unfinished: list[TestSuite] = []
+
+    def fail_not_started(self, root: TestSuite) -> None:
+        """Adds the tests that the top-level suite planned but that never started, failed."""
+        started = self.state.nodes[self.state.root or ""].started
+        planned = getattr(started, "planned", None) or []
+        seen = {getattr(test.started, "longname", None) for test in self.state.tests}
+        suites: dict[str, TestSuite] = {}
+        pending = [root]
+        while pending:
+            current = pending.pop()
+            suites[current.full_name] = current
+            pending.extend(current.suites)
+        for longname in planned:
+            if longname in seen:
+                continue
+            # the closest suite that ran; suites that never started are created on the way
+            parent = max((n for n in suites if longname.startswith(n + ".")), key=len, default=None)
+            if parent is None:
+                continue
+            *names, name = longname[len(parent) + 1 :].split(".")
+            suite = suites[parent]
+            for part in names:
+                child = suite.suites.create(name=part)
+                suites[child.full_name] = child
+                suite = child
+            suite.tests.create(
+                name=name,
+                status="FAIL",
+                message=NOT_STARTED,
+                start_time=_time(self.end),
+                elapsed_time=timedelta(0),
+            )
+
+    def fail_unfinished_suites(self, root: TestSuite) -> None:
+        """Tests of a suite whose teardown did not finish fail like after a failed suite teardown. When the
+        run would still pass, the tests of the innermost suite that did not finish fail too: a run that
+        stopped does not pass."""
+        for suite in self.unfinished:
+            if suite.teardown and suite.teardown.message == NOT_FINISHED:
+                _fail_tests(suite, f"Parent suite teardown failed:\n{NOT_FINISHED}")
+        if root.status != "FAIL" and self.unfinished:
+            _fail_tests(self.unfinished[-1], PARENT_NOT_FINISHED)
 
     def times(self, node: Node) -> dict[str, Any]:
         """Status, message and times of a node; one that is still running fails at the end of the run."""
@@ -90,6 +144,8 @@ class _Builder:
         )
         if node.message:
             suite.message = node.message
+        if node.status == RUNNING:
+            self.unfinished.append(suite)
         for child in self.children(node):
             if child.kind == "SUITE":
                 suite.suites.append(self.suite(child))
@@ -173,6 +229,15 @@ class _Builder:
         root.elapsed_time = branch.end_time - root.start_time
         root.status = _root_status(root)
         return branch
+
+
+def _fail_tests(suite: TestSuite, message: str) -> None:
+    """Fails the passed tests of a suite with `message`; failed tests get it added, like Robot Framework does."""
+    for test in suite.all_tests:
+        if test.status == "PASS":
+            test.status, test.message = "FAIL", message
+        elif test.status == "FAIL" and message not in test.message:
+            test.message = f"{test.message}\n\nAlso {message[0].lower()}{message[1:]}"
 
 
 def _root_status(root: Any) -> str:

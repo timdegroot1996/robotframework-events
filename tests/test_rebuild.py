@@ -7,7 +7,7 @@ from robot.api import ExecutionResult
 from conftest import DATA, run_with_listener
 from robotframework_events import from_dict, rebuild
 from robotframework_events.cli import main
-from robotframework_events.rebuild import NOT_FINISHED, RUN_NOT_FINISHED
+from robotframework_events.rebuild import NOT_FINISHED, NOT_STARTED, PARENT_NOT_FINISHED, RUN_NOT_FINISHED
 
 
 def tree(item: Any) -> list[tuple[Any, ...]]:
@@ -51,7 +51,13 @@ def test_what_did_not_finish_fails(tmp_path):
     cut = events[: events.index(step) + 1]
     suite = rebuild(from_dict(e) for e in cut).suite
     assert suite.message == RUN_NOT_FINISHED
-    assert [(t.name, t.status) for t in suite.tests] == [("Passing With Structures", "PASS"), ("Failing Test", "FAIL")]
+    # the test that never started fails, like the tests Robot Framework does not run after it stops
+    assert [(t.name, t.status) for t in suite.tests] == [
+        ("Passing With Structures", "PASS"),
+        ("Failing Test", "FAIL"),
+        ("Skipped Test", "FAIL"),
+    ]
+    assert suite.tests[2].message == NOT_STARTED
     failing = suite.tests[1]
     assert failing.message == NOT_FINISHED
     assert (failing.body[0].name, failing.body[0].status, failing.body[0].message) == (
@@ -62,3 +68,28 @@ def test_what_did_not_finish_fails(tmp_path):
     assert suite.status == "FAIL"
     # suite teardown never ran
     assert not suite.teardown
+
+
+def test_a_run_stopped_between_tests_fails(tmp_path):
+    events, _ = run_with_listener(tmp_path, [DATA / "sample.robot"])
+    # every test passed, then the run stopped before the next suite step
+    first = next(e for e in events if e["type"] == "test.ended")
+    cut = [e for e in events[: events.index(first) + 1]]
+    for e in cut:
+        if e["type"] == "suite.started":
+            e["planned"] = ["Sample.Passing With Structures"]
+    suite = rebuild(from_dict(e) for e in cut).suite
+    assert suite.status == "FAIL"
+    assert [(t.status, t.message) for t in suite.tests] == [("FAIL", PARENT_NOT_FINISHED)]
+
+
+def test_tests_fail_when_their_suite_teardown_did_not_finish(tmp_path):
+    events, _ = run_with_listener(tmp_path, [DATA / "sample.robot"])
+    teardown = next(
+        e for e in events if e["type"] == "step.started" and e["kind"] == "TEARDOWN" and e["parent"] == "s1"
+    )
+    suite = rebuild(from_dict(e) for e in events[: events.index(teardown) + 1]).suite
+    assert suite.teardown.status == "FAIL"
+    assert suite.tests[0].message == f"Parent suite teardown failed:\n{NOT_FINISHED}"
+    assert suite.tests[1].message.endswith(f"Also parent suite teardown failed:\n{NOT_FINISHED}")
+    assert suite.tests[2].status == "SKIP"
