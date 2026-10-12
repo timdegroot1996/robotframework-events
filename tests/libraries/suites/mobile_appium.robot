@@ -11,6 +11,7 @@ Settings App
     Click Element    xpath=//*[contains(@text, 'Network')]
     Wait Until Page Contains    Internet    timeout=15s
     Go Back
+    Wait Until Page Contains    Connected devices    timeout=15s
     Click Element    xpath=//*[contains(@text, 'Connected devices')]
     Wait Until Page Contains    Pair new device    timeout=15s
     Go Back

@@ -40,7 +40,8 @@ jobs:
             os: ubuntu-22.04
             python: "3.10"
             packages: robotframework-puppeteerlibrary
-            setup: python -m playwright install --with-deps chromium
+            # Playwright 1.22's --with-deps asks for font packages Ubuntu 22.04 no longer has; the runner has the libraries
+            setup: python -m playwright install chromium
             suites: puppeteer
           - name: windows
             os: windows-latest
