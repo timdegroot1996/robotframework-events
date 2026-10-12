@@ -34,6 +34,8 @@ classifiers = [
 rfevents = "robotframework_events.cli:main"
 
 [project.optional-dependencies]
+# step screenshots of the screen or a window (desktop libraries), and JPEG instead of PNG for WebDriver screenshots
+screen = ["Pillow>=10"]
 dev = ["pytest>=8", "jsonschema>=4.18", "ruff>=0.15", "mypy>=1.15"]
 
 [project.urls]
@@ -48,7 +50,7 @@ version = { attr = "robotframework_events.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-robotframework_events = ["py.typed", "*.schema.json"]
+robotframework_events = ["py.typed", "*.schema.json", "screenshots/presets.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

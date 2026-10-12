@@ -17,6 +17,7 @@ from .events import (
     RunStarted,
     StatusChanged,
     StepEnded,
+    StepScreenshot,
     StepStarted,
     SuiteEnded,
     SuiteStarted,
@@ -51,6 +52,7 @@ class Node:
     source: str | None = None
     children: list[str] = field(default_factory=list)
     messages: list[Message] = field(default_factory=list)
+    screenshot: str | None = None  # the page after the step (listener option screenshots), relative to outputdir
 
     @property
     def name(self) -> str:
@@ -124,6 +126,10 @@ class RunState:
             if node is not None:
                 node.status = event.status
                 node.message = event.message or ""
+        elif isinstance(event, StepScreenshot):
+            node = self.nodes.get(event.id)
+            if node is not None:
+                node.screenshot = event.path
         elif isinstance(event, ResultFileCreated):
             self.result_files[event.kind] = event.path
         elif isinstance(event, RunEnded):

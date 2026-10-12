@@ -19,6 +19,8 @@ from typing import Any, BinaryIO
 from robot import result, running
 from robot.version import VERSION as ROBOT_VERSION
 
+from .screenshots import StepScreenshots, build_config
+
 FORMAT_VERSION = 1
 MIN_RF_VERSION = (7, 0)
 
@@ -255,6 +257,14 @@ class Listener:
     - ``max_text``: maximum length of message texts, default 4096.
     - ``flush``: seconds between flushes of the file while events come in, default 0.1, so a reader that
       follows the file sees the keyword that is running. ``0`` flushes only after every test and at the end.
+    - ``screenshots``: a screenshot after the keywords of the libraries named in ``screenshot_libraries``, for a
+      playback of the test: ``off`` (default), ``actions`` (every keyword except the read-only ones its
+      preset or the user excludes, and failures), ``all`` or ``failure``; or the path of a JSON file with the
+      mode, libraries and keyword lists (see :mod:`robotframework_events.screenshots.config`). Saved in
+      ``${OUTPUT DIR}/rfevents-screenshots/``, announced with ``step.screenshot`` events, not added to
+      ``log.html``. Each screenshot takes time.
+    - ``screenshot_libraries``: the libraries that get screenshots, comma separated (``Browser,SeleniumLibrary``);
+      none by default.
     """
 
     ROBOT_LISTENER_API_VERSION = 3
@@ -270,6 +280,8 @@ class Listener:
         structures: str = "true",
         max_text: str = "4096",
         flush: str = "0.1",
+        screenshots: str = "off",
+        screenshot_libraries: str | None = None,
     ) -> None:
         _check_robot_version(ROBOT_VERSION)
         self._file_option = file
@@ -279,6 +291,8 @@ class Listener:
         self._structures = _bool(structures)
         self._max_text = int(max_text)
         self._flush_interval = float(flush)
+        self._screenshots = build_config(screenshots, screenshot_libraries)
+        self._shots: StepScreenshots | None = None
         # binary: BufferedWriter is thread-safe, so the flush thread needs no lock on the write path
         self._out: BinaryIO | None = None
         self._dirty = False
@@ -428,6 +442,13 @@ class Listener:
                 # viewers merge the items of one pabot run into one run
                 pabot=self._pabot(),
             )
+            if self._screenshots.mode != "off":
+                if not self._screenshots.active:
+                    self._screenshot_unavailable(
+                        "", "", "screenshots are on, but no library is named (screenshot_libraries=Browser,...)"
+                    )
+                else:
+                    self._shots = StepScreenshots(self._screenshots, outdir, self._screenshot_unavailable)
         source = str(data.source) if data.source else None
         self._emit(
             "suite.started",
@@ -543,6 +564,26 @@ class Listener:
             event["message"] = message
         event["elapsed"] = round(result.elapsed_time.total_seconds(), 4)
         self._write(event, _step_ended_json)
+        if self._shots is not None and result.type in KEYWORD_TYPES:
+            self._screenshot(frame.id, result)
+
+    def _screenshot(self, step_id: str | None, result: Any) -> None:
+        if step_id is None or self._shots is None:
+            return
+        owner = getattr(result, "owner", None) or ""
+        taken = self._shots.after_keyword(owner, result.name or "", result.status, list(result.tags))
+        if taken is not None:
+            self._emit("step.screenshot", id=step_id, path=taken[0], library=taken[1])
+
+    def _screenshot_unavailable(self, library: str, version: str, reason: str) -> None:
+        """Screenshots that do not work are reported, so users notice and can report it."""
+        what = f"{library} {version}".strip()
+        print(
+            f"robotframework-events: no step screenshots{f' with {what}' if what else ''}: {reason}",
+            file=sys.__stderr__,
+        )
+        if self._started:
+            self._emit("screenshot.unavailable", library=library, version=version, reason=reason)
 
     # --- messages and result files ---------------------------------------------------
 

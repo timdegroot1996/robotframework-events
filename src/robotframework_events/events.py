@@ -189,6 +189,28 @@ class ResultFileCreated(Event):
 
 
 @dataclass(slots=True, kw_only=True)
+class StepScreenshot(Event):
+    """A screenshot of the page after a step (listener option ``screenshots``)."""
+
+    TYPE: ClassVar[str] = "step.screenshot"
+
+    id: str
+    path: str
+    library: str | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class ScreenshotUnavailable(Event):
+    """Step screenshots with a library stopped or never started (listener option ``screenshots``)."""
+
+    TYPE: ClassVar[str] = "screenshot.unavailable"
+
+    reason: str
+    library: str | None = None
+    version: str | None = None
+
+
+@dataclass(slots=True, kw_only=True)
 class UnknownEvent(Event):
     """An event type this version does not know. ``data`` holds the fields besides the envelope."""
 
@@ -216,6 +238,8 @@ EVENT_CLASSES: dict[str, type[Event]] = {
         SuiteEnded,
         StatusChanged,
         ResultFileCreated,
+        StepScreenshot,
+        ScreenshotUnavailable,
         RunEnded,
     )
 }

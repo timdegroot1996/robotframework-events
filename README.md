@@ -17,11 +17,100 @@ Listener arguments: `file` (`NONE` for no file), `level` (minimum message level,
 `flush` (seconds between flushes of the file while the run goes on, default 0.1, so `rfevents tail -f` and
 editors that follow the file see the keyword that is running; `0` flushes after every test only).
 
+## Step screenshots
+
+With `screenshots`, the listener takes a screenshot after the keywords of the libraries you name, for a
+Playwright-like playback of each test (robotframework-dashboard's Live page). Libraries are opt-in, keywords
+opt-out: in a named library every keyword gets one, except the read-only ones its preset excludes
+(`Get ...`, `Wait ...`, `... Should ...` and similar); failing keywords always get one.
+
+```
+pip install "robotframework-events[screen]"     # Pillow: desktop libraries, and JPEG instead of PNG
+robot --listener "robotframework_events.Listener;screenshots=actions;screenshot_libraries=Browser,SeleniumLibrary" tests/
+```
+
+`screenshots` is `off` (default), `actions`, `all` (every keyword, exclusions ignored) or `failure`, or the
+path of a JSON file with more settings:
+
+```json
+{
+  "version": 1,
+  "mode": "actions",
+  "libraries": ["Browser", "FlaUI"],
+  "include": ["MyShop.Log In"],
+  "exclude": ["Browser.Hover", "Scroll To *"],
+  "custom": {
+    "MyDesktopLibrary": {"match": ["mydesktop:MyDesktopLibrary"], "capture": {"type": "screen", "region": "window"}}
+  }
+}
+```
+
+`include` adds own keywords (from resource files); they show the page of the library used last. `custom`
+adds a library without a preset: `match` names its class (`topmodule:Class`, base classes count) or the
+name it is imported with (`name:JavaFXLibrary`), `capture.type` is `browser`, `webdriver` (with `driver`:
+`driver` or `_current_application()`), `borrow` (with `from`: the libraries whose page it works on), `method`
+(with `method`: the library's screenshot method, called with a file path) or `screen` (with `region`:
+`screen` or `window`, the window in front). The presets are in
+[`presets.json`](src/robotframework_events/screenshots/presets.json).
+
+The images go to `${OUTPUT DIR}/rfevents-screenshots/`, each announced with a `step.screenshot` event after
+its `step.ended`. They are taken through the library directly, so nothing is added to `output.xml` or
+`log.html`. Each one takes time, so they are off by default.
+
+Libraries change fast, so a screenshot never gets in the way of a test: none is taken while a JavaScript
+dialog is open (WebDriver would dismiss it), Browser's `Take Screenshot` arguments are read from its
+signature, and a library whose API does not fit or whose screenshots keep timing out is left alone for the
+rest of the run. That is reported on the console and as a `screenshot.unavailable` event, which the Live page
+shows: please [report it](https://github.com/timdegroot1996/robotframework-events/issues) with the
+library's version.
+
+### Supported libraries
+
+Every library from [awesome-robotframework](https://github.com/MarketSquare/awesome-robotframework) that can
+take a screenshot. "Tested" means a test run with and without screenshots gave the same results, with real
+screenshots, on Windows 10 (Android 14 emulator for the mobile libraries). Browser, SeleniumLibrary, QWeb, AppiumLibrary,
+RPA Framework (`RPA.Browser.*`, `RPA.Windows`), WhiteLibrary, Puppeteer Library and FlaUI are checked again every week,
+with the versions in the table and with their latest releases. Problems with a library: open a
+[step screenshots issue](https://github.com/timdegroot1996/robotframework-events/issues/new?template=step-screenshots.yml).
+
+| Library | Name in `screenshot_libraries` | Screenshot of | Tested with |
+|---|---|---|---|
+| [Browser](https://github.com/MarketSquare/robotframework-browser) | `Browser` | the page | 20.6.0 |
+| [SeleniumLibrary](https://github.com/robotframework/SeleniumLibrary) | `SeleniumLibrary` | the page | 6.9.0 |
+| [AppiumLibrary](https://github.com/serhatbolsu/robotframework-appiumlibrary) | `AppiumLibrary` | the app or page | 3.2.1 (native app and Chrome) |
+| [RPA Framework](https://github.com/robocorp/rpaframework) `RPA.Browser.Selenium` | `RPA.Browser.Selenium` | the page | rpaframework 33.0.2 |
+| RPA Framework `RPA.Browser.Playwright` | `RPA.Browser.Playwright` | the page | rpaframework 33.0.2 |
+| RPA Framework `RPA.Desktop` | `RPA.Desktop` | the screen | rpaframework 33.0.2 |
+| RPA Framework `RPA.Windows` | `RPA.Windows` | the window in front | rpaframework-windows 11.0.0 |
+| [QWeb](https://github.com/qentinelqi/qweb) | `QWeb` | the page | 3.8.3 |
+| [WhiteLibrary](https://github.com/Omenia/robotframework-whitelibrary) | `WhiteLibrary` | the window in front | 1.6.0 (needs Python 3.10 or older) |
+| [Puppeteer Library](https://github.com/qahive/robotframework-puppeteer) | `PuppeteerLibrary` | the page | 3.1.10 (needs Python 3.10 or older) |
+| [FlaUI](https://github.com/GDATASoftwareAG/robotframework-flaui) | `FlaUI` | the window in front | 5.2.1 |
+| [Zoomba](https://github.com/Accruent/robotframework-zoomba) `GUILibrary` | `Zoomba.GUILibrary` | the page | 4.6.1 |
+| [ApplicationLibrary](https://github.com/Accruent/robotframework-applicationlibrary) `MobileLibrary` (was Zoomba's) | `ApplicationLibrary.MobileLibrary` | the app | 1.2.1 |
+| [AngularJS Library](https://github.com/MarketSquare/robotframework-angularjs) | `AngularJSLibrary` with `SeleniumLibrary` | SeleniumLibrary's page | 1.0.0 |
+| [SikuliLibrary](https://github.com/rainmanwy/robotframework-SikuliLibrary) | `SikuliLibrary` | the screen | 2.0.6 |
+| [ImageHorizonLibrary](https://github.com/eficode/robotframework-imagehorizonlibrary) | `ImageHorizonLibrary` | the screen | 1.0 |
+| [Remote Swing Library](https://github.com/robotframework/remoteswinglibrary) | `RemoteSwingLibrary` | the window in front | 2.3.3 |
+| [ADB Library](https://pypi.org/project/robotframework-adblibrary/) | `ADBLibrary` | the device screen | 0.1.3 |
+| [SapGui Library](https://github.com/frankvanderkuur/robotframework-sapguilibrary), `RPA.SAP` | `SapGuiLibrary`, `RPA.SAP` | the SAP window | not tested (needs a SAP system) |
+| [RoboSAPiens](https://github.com/imbus/robotframework-robosapiens) | `RoboSAPiens` | the SAP window | not tested (needs a SAP system) |
+| [AutoIt Library](https://github.com/nokia/robotframework-autoitlibrary) | `AutoItLibrary` | the window in front | not tested (needs AutoItX registered) |
+| [PlatynUI](https://github.com/imbus/robotframework-PlatynUI) | `PlatynUI` | the window in front | not tested (needs its .NET runtime) |
+| [JupyterLibrary](https://github.com/robots-from-jupyter/robotframework-jupyterlibrary) | `JupyterLibrary` with `SeleniumLibrary` | SeleniumLibrary's page | not tested |
+| [Swing Library](https://github.com/robotframework/SwingLibrary) | `SwingLibrary` | the window in front | not tested |
+| [JavaFXLibrary](https://github.com/eficode/JavaFXLibrary) (through `Remote`) | `JavaFXLibrary` | the window in front | not tested |
+| [Eclipse Library](https://github.com/lcarbonn/robotframework-eclipselibrary) | `EclipseLibrary` | the window in front | not tested |
+
+Libraries built on one of these are recognised by their base class. Not supported: Mainframe 3270 (its
+screenshot is the terminal's text). "The screen" and "the window in front" need a display, and show what is
+visible there, other windows included.
+
 ## Event format
 
 One JSON object per line. Every event has `v` (format version), `seq` (1, 2, 3, ...), `t` (Unix
 time) and `type`: `run.started`, `suite.started`, `test.started`, `step.started`,
-`message.logged`, `step.ended`, `test.ended`, `suite.ended`, `status.changed`,
+`message.logged`, `step.ended`, `step.screenshot`, `test.ended`, `suite.ended`, `status.changed`,
 `resultfile.created`, `run.ended`.
 
 ```jsonl

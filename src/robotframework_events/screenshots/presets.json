@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "about": "Step screenshot presets per library. A library is recognised when one of the classes in `match` (top-level module:class name) is in its class hierarchy, so libraries built on it are recognised too; `name:<library>` matches the name it is imported with (for libraries used through Remote). `capture` says how the screenshot is taken, `exclude` which keywords never get one (keyword names, * and ? as wildcards, case ignored, underscores read as spaces), `exclude_tags` which keyword tags never get one. `aliases` are other names users may switch a preset on with. `tested` is the version the preset was last tested with, null when not tested yet.",
+  "libraries": {
+    "Browser": {
+      "match": ["Browser:Browser"],
+      "aliases": ["RPA.Browser.Playwright"],
+      "capture": { "type": "browser" },
+      "exclude_tags": ["Getter", "Wait", "Config", "Clock", "Coverage", "Assertion"],
+      "exclude": ["Take Screenshot", "Close *", "New Browser", "New Context", "New Persistent Context", "Connect To Browser", "Promise To*", "Wait *", "Get *", "*Should*", "Register *", "Set * Timeout", "Set Strict Mode", "Set Retry Assertions For", "Set Assertion Formatters", "Show Keyword Call Banner", "Highlight *", "Keyboard Key", "Add Cookie", "Add Style Tag", "Add Init Script", "Handle Future Dialogs", "Save Storage State", "Start Coverage", "Stop Coverage", "Start Tracing", "Stop Tracing", "Download"],
+      "tested": "20.6.0"
+    },
+    "SeleniumLibrary": {
+      "match": ["SeleniumLibrary:SeleniumLibrary"],
+      "aliases": ["RPA.Browser.Selenium", "Zoomba.GUILibrary", "GUILibrary"],
+      "capture": { "type": "webdriver", "driver": "driver" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Capture *", "Close *", "Open Browser", "Create Webdriver", "Register *", "Set * Timeout", "Set * Speed", "Set * Implicit Wait", "Set Screenshot Directory", "Set Selenium *", "Log *", "Handle Alert", "Execute Async Javascript", "Add Location Strategy", "Remove Location Strategy", "Switch Browser", "Is *", "Element Attribute Value Should Be"],
+      "tested": "6.9.0"
+    },
+    "AppiumLibrary": {
+      "match": ["AppiumLibrary:AppiumLibrary"],
+      "aliases": ["ApplicationLibrary.MobileLibrary", "ApplicationLibrary.DesktopLibrary", "MobileLibrary", "DesktopLibrary"],
+      "capture": { "type": "webdriver", "driver": "_current_application()" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Capture *", "Close *", "Open Application", "Switch Application", "Log *", "Register *", "Set Appium Timeout", "Is *", "Start Screen Recording", "Stop Screen Recording"],
+      "tested": "3.2.1"
+    },
+    "QWeb": {
+      "match": ["QWeb:QWeb"],
+      "capture": { "type": "qweb" },
+      "exclude": ["Get *", "Verify *", "Is *", "Wait *", "Log *", "Set Config", "Reset Config", "Close *", "Open Browser", "Log Screenshot", "Save Screenshot", "Use *"],
+      "tested": "3.8.3"
+    },
+    "PuppeteerLibrary": {
+      "match": ["PuppeteerLibrary:PuppeteerLibrary"],
+      "capture": { "type": "method", "method": "capture_page_screenshot", "argument": "filename" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Capture *", "Close *", "Open Browser", "Set * Timeout", "Log *"],
+      "tested": "3.1.10"
+    },
+    "AngularJSLibrary": {
+      "match": ["AngularJSLibrary:AngularJSLibrary"],
+      "capture": { "type": "borrow", "from": ["SeleniumLibrary"] },
+      "exclude": ["Wait For Angular", "Set Ignore Implicit Angular Wait", "Get *"],
+      "tested": "1.0.0"
+    },
+    "JupyterLibrary": {
+      "match": ["JupyterLibrary:JupyterLibrary"],
+      "capture": { "type": "borrow", "from": ["SeleniumLibrary"] },
+      "exclude": ["Get *", "Wait *", "*Should*", "Capture *", "Start New Jupyter*", "Terminate All Jupyter*", "Wait For Jupyter*"],
+      "tested": null
+    },
+    "SapGuiLibrary": {
+      "match": ["SapGuiLibrary:SapGuiLibrary"],
+      "aliases": ["RPA.SAP"],
+      "capture": { "type": "sapgui" },
+      "exclude": ["Get *", "Verify *", "Take Screenshot", "Connect To *", "Disconnect *", "Set Explicit Wait", "Run Transaction"],
+      "tested": null
+    },
+    "RoboSAPiens": {
+      "match": ["RoboSAPiens:RoboSAPiens"],
+      "capture": { "type": "method", "method": "save_screenshot", "argument": "filepath" },
+      "exclude": ["Read *", "Get *", "Verify *", "Save Screenshot", "Connect To *", "Open SAP", "Close SAP", "Export *"],
+      "tested": null
+    },
+    "ADBLibrary": {
+      "match": ["ADBLibrary:ADBLibrary"],
+      "capture": { "type": "method", "method": "take_screenshot" },
+      "exclude": ["Get *", "Take Screenshot", "Start Adb Server", "Kill Adb Server", "Create Connection", "Switch *", "Close *", "Disconnect Device", "Enable Tcpip Mode"],
+      "tested": "0.1.3"
+    },
+    "FlaUI": {
+      "match": ["FlaUILibrary:FlaUILibrary"],
+      "aliases": ["FlaUILibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Take Screenshot*", "Set Screenshot *", "Close *", "Launch Application*", "Attach Application*", "Element Exist*", "Is *"],
+      "tested": "5.2.1"
+    },
+    "AutoItLibrary": {
+      "match": ["AutoItLibrary:AutoItLibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Win Get *", "Control Get *", "Win Wait*", "Wait For *", "Win Exists", "Win Active", "Screen Capture*", "Is *", "Opt", "Auto It Set Option", "Clip Get"],
+      "tested": null
+    },
+    "WhiteLibrary": {
+      "match": ["WhiteLibrary:WhiteLibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Take Desktop Screenshot", "Close *", "Launch Application", "Attach Application *", "Set White Busy Timeout", "Set Screenshot *", "Verify *"],
+      "tested": "1.6.0"
+    },
+    "PlatynUI": {
+      "match": ["PlatynUI:PlatynUI", "platynui:PlatynUI"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Take Screenshot*", "Is *"],
+      "tested": null
+    },
+    "ImageHorizonLibrary": {
+      "match": ["ImageHorizonLibrary:ImageHorizonLibrary"],
+      "capture": { "type": "screen", "region": "screen" },
+      "exclude": ["Get *", "Wait For", "Does Exist", "Locate", "Take A Screenshot", "Set Confidence", "Set Reference Folder", "Set Screenshot Folder", "Copy", "Debug Image", "Set Keyword On Failure"],
+      "tested": "1.0"
+    },
+    "RPA.Desktop": {
+      "match": ["RPA:Desktop"],
+      "capture": { "type": "screen", "region": "screen" },
+      "exclude": ["Get *", "Wait For *", "Find *", "Take Screenshot", "Read Text", "Set Default Timeout", "Set Default Confidence", "Close *"],
+      "tested": "rpaframework 33.0.2"
+    },
+    "RPA.Windows": {
+      "match": ["RPA:Windows"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait For *", "Screenshot", "Print Tree", "Set Global Timeout", "Set Anchor", "Clear Anchor", "Close *", "Is *", "List Windows"],
+      "tested": "rpaframework-windows 11.0.0"
+    },
+    "SikuliLibrary": {
+      "match": ["SikuliLibrary:SikuliLibrary"],
+      "capture": { "type": "screen", "region": "screen" },
+      "exclude": ["Get *", "Wait *", "Exists", "*Should*", "Capture *", "Add Image Path", "Remove Image Path", "Set *", "Start Sikuli Process", "Stop Remote Server", "Read Text*"],
+      "tested": "2.0.6"
+    },
+    "SwingLibrary": {
+      "match": ["SwingLibrary:SwingLibrary", "name:SwingLibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Take Screenshot", "Set Jemmy Timeout*", "Start Application*", "Launch Application", "Close *", "List *"],
+      "tested": null
+    },
+    "RemoteSwingLibrary": {
+      "match": ["RemoteSwingLibrary:RemoteSwingLibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Take Screenshot", "Start Application", "Application Started", "System Exit", "Set Java Tool Options", "Ensure Application Should Close", "Log Java *", "Reinitiate"],
+      "tested": "2.3.3"
+    },
+    "JavaFXLibrary": {
+      "match": ["JavaFXLibrary:JavaFXLibrary", "name:JavaFXLibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Capture *", "Set *", "Launch Javafx Application", "Close Javafx Application", "Log *", "Find *"],
+      "tested": null
+    },
+    "EclipseLibrary": {
+      "match": ["EclipseLibrary:EclipseLibrary", "name:EclipseLibrary"],
+      "capture": { "type": "screen", "region": "window" },
+      "exclude": ["Get *", "Wait *", "*Should*", "Capture *", "Start Eclipse*", "Close *"],
+      "tested": null
+    }
+  }
+}

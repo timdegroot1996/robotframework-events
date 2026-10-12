@@ -22,7 +22,9 @@
     { "if": { "properties": { "type": { "const": "step.ended" } } }, "then": { "$ref": "#/$defs/step.ended" } },
     { "if": { "properties": { "type": { "const": "message.logged" } } }, "then": { "$ref": "#/$defs/message.logged" } },
     { "if": { "properties": { "type": { "const": "status.changed" } } }, "then": { "$ref": "#/$defs/status.changed" } },
-    { "if": { "properties": { "type": { "const": "resultfile.created" } } }, "then": { "$ref": "#/$defs/resultfile.created" } }
+    { "if": { "properties": { "type": { "const": "resultfile.created" } } }, "then": { "$ref": "#/$defs/resultfile.created" } },
+    { "if": { "properties": { "type": { "const": "step.screenshot" } } }, "then": { "$ref": "#/$defs/step.screenshot" } },
+    { "if": { "properties": { "type": { "const": "screenshot.unavailable" } } }, "then": { "$ref": "#/$defs/screenshot.unavailable" } }
   ],
   "$defs": {
     "id": {
@@ -188,6 +190,24 @@
       "properties": {
         "kind": { "enum": ["OUTPUT", "LOG", "REPORT", "XUNIT", "DEBUG"] },
         "path": { "type": "string" }
+      }
+    },
+    "step.screenshot": {
+      "description": "A screenshot of the page after a step, taken with the listener's screenshots option. Follows the step's step.ended.",
+      "required": ["id", "path"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "path": { "description": "Image file, relative to run.started.outputdir, with /.", "type": "string" },
+        "library": { "description": "The preset the screenshot was taken with.", "type": "string" }
+      }
+    },
+    "screenshot.unavailable": {
+      "description": "Step screenshots with a library stopped (its API does not fit, timeouts) or never started (no preset, no library named).",
+      "required": ["reason"],
+      "properties": {
+        "library": { "type": "string" },
+        "version": { "type": "string" },
+        "reason": { "type": "string" }
       }
     }
   }
