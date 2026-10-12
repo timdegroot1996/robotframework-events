@@ -14,6 +14,7 @@ from .convert import convert
 from .events import Event, from_dict, schema
 from .listener import Listener, add_callback, remove_callback
 from .reader import read_events
+from .rebuild import rebuild
 from .state import RunState
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "convert",
     "from_dict",
     "read_events",
+    "rebuild",
     "remove_callback",
     "schema",
 ]

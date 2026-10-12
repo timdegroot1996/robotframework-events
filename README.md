@@ -38,16 +38,24 @@ reference.
 rfevents tail -f results/events.jsonl          # follow a run in the terminal, keyword by keyword
 rfevents tail --steps 2 --level INFO events.jsonl
 rfevents convert output.xml -o events.jsonl    # events for a run recorded without the listener
+rfevents rebuild events.jsonl -o output.xml    # output.xml for a run that crashed before writing it
 ```
 
 `tail` prints suites, tests, steps down to `--steps` levels (default 1), log messages from
 `--level` (default `WARN`) and a summary. `convert` reads `output.xml` or `output.json`; steps
-then have no source or line number, which result files do not store.
+then have no source or line number, which result files do not store. `rebuild` is the other way
+round, for a run that was killed or crashed: the tests and steps that were still running fail with
+"Not finished", tests that never started are left out, and the top-level suite says the run did not
+finish.
+
+With pabot, every process writes its own events file in its own output folder
+(`pabot --listener robotframework_events.Listener tests/`); `run.started` then has a `pabot` field
+with the process's `index`, `pool`, `processes` and whether it is the `last` one pabot starts.
 
 ## Python API
 
 ```python
-from robotframework_events import RunState, add_callback, convert, read_events
+from robotframework_events import RunState, add_callback, convert, read_events, rebuild
 
 state = RunState.from_events(read_events("events.jsonl"))  # also .jsonl.gz
 print(state.status, state.counts())
@@ -55,6 +63,7 @@ for event in read_events("events.jsonl", follow=True):  # while the run writes i
     ...
 
 events = list(convert("output.xml"))  # dicts, as the listener writes them
+rebuild(read_events("events.jsonl")).save("output.xml")  # a Robot Framework result
 add_callback(fn)  # in-process consumers, e.g. robotcode's debugger
 ```
 

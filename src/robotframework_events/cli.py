@@ -24,6 +24,7 @@ from .events import (
 )
 from .listener import LEVELS
 from .reader import read_events
+from .rebuild import write_rebuilt
 from .state import RunState, step_label
 
 COLORS = {"PASS": "32", "FAIL": "31", "SKIP": "33", "NOT RUN": "90", "WARN": "33", "ERROR": "31"}
@@ -57,6 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     conv.add_argument("output", help="output.xml or output.json")
     conv.add_argument("-o", "--outfile", help="events file to write (default: standard output)")
 
+    rebuilt = commands.add_parser(
+        "rebuild", help="build output.xml from events, for a run that crashed or was killed before writing it"
+    )
+    rebuilt.add_argument("file", help="events file (.jsonl or .jsonl.gz)")
+    rebuilt.add_argument("-o", "--outfile", required=True, help="output.xml to write")
+
     args = parser.parse_args(argv)
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(errors="replace")
@@ -66,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.color == "auto" and sys.stdout.isatty() and "NO_COLOR" not in os.environ
             )
             Tail(sys.stdout, args.steps, args.level, color).show(read_events(args.file, follow=args.follow))
+        elif args.command == "rebuild":
+            write_rebuilt(read_events(args.file), args.outfile)
         else:
             write_converted(args.output, args.outfile)
     except KeyboardInterrupt:
