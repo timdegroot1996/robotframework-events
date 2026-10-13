@@ -275,3 +275,21 @@ def test_window_and_monitor_boxes_are_in_virtual_screen_coordinates():
     # the main one make that origin negative)
     for box in (window, monitor):
         assert left <= box[0] < box[2] <= right and top <= box[1] < box[3] <= bottom
+
+
+class _AdbLike:
+    """Writes its own PNG, like ADBLibrary's take_screenshot."""
+
+    def take_screenshot(self, path: str) -> None:
+        from PIL import Image
+
+        Image.new("RGB", (40, 80), "navy").save(path, "PNG")
+
+
+def test_screenshots_a_library_writes_as_png_become_jpeg(tmp_path):
+    pytest.importorskip("PIL")
+    from robotframework_events.screenshots import adapters
+
+    path = adapters.method(_AdbLike(), "take_screenshot", tmp_path / "00001", ".png")
+    assert path == tmp_path / "00001.jpeg" and path.is_file()
+    assert not (tmp_path / "00001.png").exists()

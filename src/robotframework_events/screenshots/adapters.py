@@ -151,10 +151,10 @@ def method(instance: Any, name: str, base: Path, extension: str) -> Path | None:
     result = function(str(target))
     for candidate in (target, Path(result) if isinstance(result, str) else None):
         if candidate is not None and candidate.is_file():
-            return candidate
+            return _as_jpeg(candidate)
     # a library that adds its own extension
     written = sorted(base.parent.glob(base.name + ".*"))
-    return written[0] if written else None
+    return _as_jpeg(written[0]) if written else None
 
 
 # --- the screen or a window (desktop libraries) ------------------------------------------------
@@ -212,12 +212,16 @@ def _foreground_box(monitor: bool = False) -> tuple[int, int, int, int] | None:
                 rect = info.rcMonitor
             elif dwmapi.DwmGetWindowAttribute(window, 9, ctypes.byref(rect), ctypes.sizeof(rect)) != 0:  # frame bounds
                 user32.GetWindowRect(window, ctypes.byref(rect))
+            # a window can stick out of the screen: only the part on it
+            left, top = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)  # SM_X/YVIRTUALSCREEN
+            right, bottom = left + user32.GetSystemMetrics(78), top + user32.GetSystemMetrics(79)  # width, height
         finally:
             if previous:
                 user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(previous))
-        if rect.right - rect.left < 10 or rect.bottom - rect.top < 10:
+        box = (max(rect.left, left), max(rect.top, top), min(rect.right, right), min(rect.bottom, bottom))
+        if box[2] - box[0] < 10 or box[3] - box[1] < 10:
             return None
-        return (rect.left, rect.top, rect.right, rect.bottom)
+        return box
     except Exception:
         return None
 
@@ -236,10 +240,27 @@ def sapgui(instance: Any, base: Path) -> Path | None:
         session.findById("wnd[0]").HardCopy(str(path), 2)  # 2: PNG
     except Exception:
         return screen(base, "window")
-    return path if path.is_file() else screen(base, "window")
+    return _as_jpeg(path) if path.is_file() else screen(base, "window")
 
 
 # --- images -------------------------------------------------------------------------------------
+
+
+def _as_jpeg(path: Path) -> Path:
+    """A PNG or BMP a library wrote, as JPEG when Pillow is there (a phone screen: 1.3 MB as PNG, about 150 KB
+    as JPEG); the file as it is otherwise, or when Pillow cannot read it."""
+    if path.suffix.lower() not in (".png", ".bmp"):
+        return path
+    try:
+        from PIL import Image
+
+        target = path.with_suffix(".jpeg")
+        with Image.open(path) as image:
+            image.convert("RGB").save(target, "JPEG", quality=JPEG_QUALITY)
+    except Exception:
+        return path
+    path.unlink(missing_ok=True)
+    return target
 
 
 def _save_image(png: bytes, base: Path) -> Path:

@@ -9,6 +9,7 @@ Runs with the current Python; the libraries must be installed (see .github/workf
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -28,6 +29,9 @@ class Suite:
     suite: str
     libraries: list[str]
     min_shots: int = 3
+    # desktop captures: at least this many different images (a capture of the wrong screen area is the same
+    # picture every time, and not blank)
+    min_distinct: int = 1
     variables: dict[str, str] = field(default_factory=dict)
 
 
@@ -42,9 +46,9 @@ SUITES = {
         Suite("rpa-playwright", "rpa_browser_playwright.robot", ["RPA.Browser.Playwright"]),
         Suite("appium", "mobile_appium.robot", ["AppiumLibrary"]),
         Suite("mobileweb", "mobile_web.robot", ["AppiumLibrary"]),
-        Suite("flaui", "desktop_flaui.robot", ["FlaUI"], min_shots=2),
-        Suite("white", "desktop_white.robot", ["WhiteLibrary"], min_shots=2),
-        Suite("rpa-windows", "rpa_windows.robot", ["RPA.Windows"], min_shots=2),
+        Suite("flaui", "desktop_flaui.robot", ["FlaUI"], min_shots=2, min_distinct=2),
+        Suite("white", "desktop_white.robot", ["WhiteLibrary"], min_shots=2, min_distinct=2),
+        Suite("rpa-windows", "rpa_windows.robot", ["RPA.Windows"], min_shots=2, min_distinct=2),
     ]
 }
 
@@ -87,6 +91,7 @@ def check(suite: Suite) -> dict[str, object]:
     files = [shots / e["path"] for e in taken]
     blanks = [f.name for f in files if f.is_file() and blank(f)]
     missing = [f.name for f in files if not f.is_file()]
+    distinct = len({hashlib.sha256(f.read_bytes()).hexdigest() for f in files if f.is_file()})
     try:
         before, after = statuses(plain), statuses(shots)
     except Exception as error:  # no output.xml: the run itself broke
@@ -94,13 +99,14 @@ def check(suite: Suite) -> dict[str, object]:
     passed = sum(s == "PASS" for s in after.values())
     same = before == after
     ok = same and passed == len(after) > 0 and len(taken) >= suite.min_shots and not missing and not blanks
-    ok = ok and not problems
+    ok = ok and not problems and distinct >= suite.min_distinct
     return {
         "suite": suite.name,
         "ok": ok,
         "tests": f"{passed}/{len(after)} pass",
         "same results": same,
         "screenshots": len(taken),
+        "distinct": distinct,
         "expected": f">= {suite.min_shots}",
         "missing": missing,
         "blank": blanks,
@@ -110,13 +116,14 @@ def check(suite: Suite) -> dict[str, object]:
 
 def summary(rows: list[dict[str, object]]) -> str:
     lines = [
-        "| Suite | Result | Tests | Same results | Screenshots | Blank | Missing | Problems |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Suite | Result | Tests | Same results | Screenshots | Different | Blank | Missing | Problems |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
         lines.append(
             f"| {row['suite']} | {'OK' if row['ok'] else 'FAIL'} | {row['tests']} | {row['same results']} "
-            f"| {row['screenshots']} ({row['expected']}) | {len(row['blank'])} | {len(row['missing'])} "
+            f"| {row['screenshots']} ({row['expected']}) | {row['distinct']} "
+            f"| {len(row['blank'])} | {len(row['missing'])} "
             f"| {'; '.join(row['problems']) or '-'} |"
         )
     return "\n".join(lines) + "\n"
