@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.6.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.6.0) - 2026-10-13
+
+### Added
+- Step screenshots for a Playwright-like playback of each test: listener arguments `screenshots` (`off`, `actions`, `all`, `failure`, or a JSON settings file) and `screenshot_libraries`. Libraries are opt-in (none gets screenshots until it is named), keywords opt-out (read-only keywords are excluded per library). Presets for 22 libraries, among them Browser, SeleniumLibrary, AppiumLibrary, QWeb, RPA Framework, FlaUI, WhiteLibrary and PlatynUI; libraries built on one (Zoomba, `RPA.Browser.*`) are recognised. The README lists them and the versions they were tested with
+- `step.screenshot` and `screenshot.unavailable` events (format v1, new event types): the file of a step's screenshot, and why a library's screenshots were switched off (dialog open, timeouts, an API that changed), so viewers can show it and users can report it
+- `screenshot` on steps in `RunState`
+- Optional extra `screen` (Pillow): screenshots of the screen or the window in front for desktop libraries, and JPEG instead of PNG for the other screenshots (about eight times smaller)
+- `rfevents rebuild` and `rebuild()`: a Robot Framework `output.xml` from the events of a run that crashed before writing it. What did not finish fails, like Robot Framework would have failed it
+
+---
+
 ## [0.5.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.5.0) - 2026-10-12
 
 ### Added
