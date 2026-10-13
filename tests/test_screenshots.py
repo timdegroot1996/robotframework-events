@@ -2,6 +2,7 @@
 FakeBrowser has a WebDriver-like driver, FakeAngular works on FakeBrowser's page."""
 
 import json
+import sys
 
 import pytest
 from robot.api import ExecutionResult
@@ -252,3 +253,25 @@ def test_sap_gui_window_hard_copy(tmp_path, monkeypatch):
     # scripting refuses: the window in front instead
     monkeypatch.setattr(adapters, "screen", lambda base, region: base.with_suffix(".jpeg"))
     assert adapters.sapgui(_SapGuiLibrary(_SapSession(fail=True)), tmp_path / "00003") == tmp_path / "00003.jpeg"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="window and monitor rectangles are Windows only")
+def test_window_and_monitor_boxes_are_in_virtual_screen_coordinates():
+    import ctypes
+
+    from robotframework_events.screenshots import adapters
+
+    window, monitor = adapters._foreground_box(), adapters._foreground_box(monitor=True)
+    if window is None or monitor is None:
+        pytest.skip("no window in front")
+    user32 = ctypes.windll.user32
+    previous = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    try:
+        left, top = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+        right, bottom = left + user32.GetSystemMetrics(78), top + user32.GetSystemMetrics(79)
+    finally:
+        user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(previous))
+    # ImageGrab subtracts the virtual screen's origin itself: the boxes must not (monitors left of or above
+    # the main one make that origin negative)
+    for box in (window, monitor):
+        assert left <= box[0] < box[2] <= right and top <= box[1] < box[3] <= bottom

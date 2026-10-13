@@ -161,23 +161,26 @@ def method(instance: Any, name: str, base: Path, extension: str) -> Path | None:
 
 
 def screen(base: Path, region: str = "screen") -> Path | None:
-    """The whole screen, or the part of it where the window in front is (`window`, Windows only; elsewhere the
-    screen). The screen's pixels, not the window's own drawing, so windows drawn by the GPU are not blank.
+    """The screen, or the part of it where the window in front is (`window`). On Windows "the screen" is the
+    monitor the window in front is on (with several monitors); elsewhere the main screen. The screen's pixels,
+    not the window's own drawing, so windows drawn by the GPU are not blank.
     Needs Pillow (`pip install robotframework-events[screen]`) and a display."""
     try:
         from PIL import ImageGrab
     except ImportError as e:
         raise ApiMismatch("screen capture needs Pillow: pip install robotframework-events[screen]") from e
-    box = _foreground_box() if region == "window" and sys.platform == "win32" else None
+    box = _foreground_box(monitor=region != "window") if sys.platform == "win32" else None
     image = ImageGrab.grab(bbox=box, all_screens=box is not None)
     path = base.with_suffix(".jpeg")
     image.convert("RGB").save(path, "JPEG", quality=JPEG_QUALITY)
     return path
 
 
-def _foreground_box() -> tuple[int, int, int, int] | None:
-    """The screen rectangle of the window in front, in physical pixels (what ImageGrab uses), without the
-    invisible resize border; None when there is no usable window."""
+def _foreground_box(monitor: bool = False) -> tuple[int, int, int, int] | None:
+    """The screen rectangle of the window in front (or, with `monitor`, of the monitor it is on), in physical
+    pixels of the virtual screen, as ImageGrab's bbox takes them (it subtracts the virtual screen's origin
+    itself, which is negative when a monitor is left of or above the main one). Without the window's invisible
+    resize border; None when there is no usable window."""
     try:
         import ctypes
         from ctypes import wintypes
@@ -191,17 +194,30 @@ def _foreground_box() -> tuple[int, int, int, int] | None:
             if not window or user32.IsIconic(window):
                 return None
             rect = wintypes.RECT()
-            if dwmapi.DwmGetWindowAttribute(window, 9, ctypes.byref(rect), ctypes.sizeof(rect)) != 0:  # 9: frame bounds
+            if monitor:
+
+                class MonitorInfo(ctypes.Structure):
+                    _fields_ = [
+                        ("cbSize", wintypes.DWORD),
+                        ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT),
+                        ("dwFlags", wintypes.DWORD),
+                    ]
+
+                user32.MonitorFromWindow.restype = wintypes.HANDLE
+                handle = user32.MonitorFromWindow(window, 2)  # MONITOR_DEFAULTTONEAREST
+                info = MonitorInfo(cbSize=ctypes.sizeof(MonitorInfo))
+                if not handle or not user32.GetMonitorInfoW(wintypes.HANDLE(handle), ctypes.byref(info)):
+                    return None
+                rect = info.rcMonitor
+            elif dwmapi.DwmGetWindowAttribute(window, 9, ctypes.byref(rect), ctypes.sizeof(rect)) != 0:  # frame bounds
                 user32.GetWindowRect(window, ctypes.byref(rect))
-            # ImageGrab with all_screens counts from the left-top of the virtual screen
-            left = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
-            top = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
         finally:
             if previous:
                 user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(previous))
         if rect.right - rect.left < 10 or rect.bottom - rect.top < 10:
             return None
-        return (rect.left - left, rect.top - top, rect.right - left, rect.bottom - top)
+        return (rect.left, rect.top, rect.right, rect.bottom)
     except Exception:
         return None
 

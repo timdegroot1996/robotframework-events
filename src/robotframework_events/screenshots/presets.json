@@ -87,10 +87,10 @@
       "tested": "1.6.0"
     },
     "PlatynUI": {
-      "match": ["PlatynUI:PlatynUI", "platynui:PlatynUI"],
+      "match": ["PlatynUI:PlatynUI", "platynui:PlatynUI", "name:PlatynUI"],
       "capture": { "type": "screen", "region": "window" },
       "exclude": ["Get *", "Wait *", "*Should*", "Take Screenshot*", "Is *"],
-      "tested": null
+      "tested": "0.9.2"
     },
     "ImageHorizonLibrary": {
       "match": ["ImageHorizonLibrary:ImageHorizonLibrary"],
