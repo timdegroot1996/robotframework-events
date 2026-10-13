@@ -78,7 +78,7 @@
       "match": ["AutoItLibrary:AutoItLibrary"],
       "capture": { "type": "screen", "region": "window" },
       "exclude": ["Get *", "Win Get *", "Control Get *", "Win Wait*", "Wait For *", "Win Exists", "Win Active", "Screen Capture*", "Is *", "Opt", "Auto It Set Option", "Clip Get"],
-      "tested": null
+      "tested": "1.2.9"
     },
     "WhiteLibrary": {
       "match": ["WhiteLibrary:WhiteLibrary"],

@@ -95,7 +95,7 @@ with the versions in the table and with their latest releases. Problems with a l
 | [ADB Library](https://pypi.org/project/robotframework-adblibrary/) | `ADBLibrary` | the device screen | 0.1.3 |
 | [SapGui Library](https://github.com/frankvanderkuur/robotframework-sapguilibrary), `RPA.SAP` | `SapGuiLibrary`, `RPA.SAP` | the SAP window | not tested (needs a SAP system) |
 | [RoboSAPiens](https://github.com/imbus/robotframework-robosapiens) | `RoboSAPiens` | the SAP window | not tested (needs a SAP system) |
-| [AutoIt Library](https://github.com/nokia/robotframework-autoitlibrary) | `AutoItLibrary` | the window in front | not tested (needs AutoItX registered) |
+| [AutoIt Library](https://github.com/nokia/robotframework-autoitlibrary) | `AutoItLibrary` | the window in front | 1.2.9 (needs the 64-bit AutoItX registered: `regsvr32 AutoItX3_x64.dll` as admin) |
 | [PlatynUI](https://github.com/imbus/robotframework-PlatynUI) | `PlatynUI` | the window in front | 0.9.2 (needs the .NET 8 runtime; in one run with FlaUI or WhiteLibrary, which start .NET Framework, use it through `Remote ... AS PlatynUI`) |
 | [JupyterLibrary](https://github.com/robots-from-jupyter/robotframework-jupyterlibrary) | `JupyterLibrary` with `SeleniumLibrary` | SeleniumLibrary's page | not tested |
 | [Swing Library](https://github.com/robotframework/SwingLibrary) | `SwingLibrary` | the window in front | not tested |
