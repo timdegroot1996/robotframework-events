@@ -204,6 +204,98 @@ def _step_ended_json(e: dict[str, Any]) -> str | None:
     return s if written == len(e) else None
 
 
+# Without callbacks no event dict is needed: keyword and iteration steps are written straight from
+# the model, field for field as _step_started_json and _step_ended_json write them. ``t`` is the
+# time already formatted (see Listener._time). A value of an unexpected type raises, and the caller
+# then builds the dict. Few concatenations: every one copies the line.
+def _step_started_line(
+    seq: int, t: str, id: str, parent: str | None, kind: str, source: str | None, lineno: Any, result: Any, args: bool
+) -> str:
+    if parent is not None:
+        s = (
+            f'{{"v":{FORMAT_VERSION},"seq":{seq},"t":{t},"type":"step.started","id":"{id}",'
+            f'"parent":"{parent}","kind":"{kind}"'
+        )
+    else:
+        s = f'{{"v":{FORMAT_VERSION},"seq":{seq},"t":{t},"type":"step.started","id":"{id}","kind":"{kind}"'
+    if kind in KEYWORD_TYPES:
+        # in a loop the same keyword call comes back with the same fields
+        values = result.args if args else None
+        key = (source, lineno, result.name, result.owner, values, result.assign)
+        rest = _keyword_fields.get(key)
+        if rest is None:
+            rest = _keyword_started_fields(source, lineno, result, values)
+            if len(_keyword_fields) >= 4096:
+                _keyword_fields.clear()
+            _keyword_fields[key] = rest
+        return s + rest
+    # ITERATION
+    if source:
+        s += ',"source":' + _quote(source)
+    if lineno is not None:
+        s += f',"lineno":{lineno:d}'
+    assign = getattr(result, "assign", None)
+    if assign and len(assign) == 1:  # the common FOR loop: one variable
+        ((k, v),) = assign.items()
+        if type(v) is not str or len(v) > MAX_ARG_LENGTH:
+            v = _short(v)
+        s += f',"assign":{{{_quote(k)}:{_quote(v)}}}'
+    elif assign:
+        s += (
+            ',"assign":{'
+            + ",".join(
+                [
+                    f"{_quote(k)}:{_quote(v if type(v) is str and len(v) <= MAX_ARG_LENGTH else _short(v))}"
+                    for k, v in assign.items()
+                ]
+            )
+            + "}"
+        )
+    return s + "}\n"
+
+
+# The fields of a keyword's step.started after "kind", by call site. Tags are not in the key: a
+# keyword (name and owner) has the same tags on every call.
+_keyword_fields: dict[tuple[Any, ...], str] = {}
+
+
+def _keyword_started_fields(source: str | None, lineno: Any, result: Any, values: Any) -> str:
+    s = ""
+    if source:
+        s += ',"source":' + _quote(source)
+    if lineno is not None:
+        s += f',"lineno":{lineno:d}'
+    name = result.name
+    owner = result.owner
+    if name and owner:
+        s += f',"name":{_quote(name)},"owner":{_quote(owner)}'
+    elif name:
+        s += ',"name":' + _quote(name)
+    elif owner:
+        s += ',"owner":' + _quote(owner)
+    if values:
+        s += ',"args":[' + ",".join(map(_quote, _short_list(values))) + "]"  # type: ignore[arg-type]
+    assign = result.assign
+    if assign:
+        s += ',"assign":[' + ",".join(map(_quote, assign)) + "]"
+    tags = result.tags
+    if tags and any(_normalize(t) == "robot:flatten" for t in tags):
+        s += ',"flatten":true'
+    return s + "}\n"
+
+
+def _step_ended_line(seq: int, t: str, id: str | None, status: str, message: str, elapsed: float) -> str:
+    if message:
+        return (
+            f'{{"v":{FORMAT_VERSION},"seq":{seq},"t":{t},"type":"step.ended","id":"{id}","status":"{status}",'
+            f'"message":{_quote(message)},"elapsed":{elapsed:.4f}}}\n'
+        )
+    return (
+        f'{{"v":{FORMAT_VERSION},"seq":{seq},"t":{t},"type":"step.ended","id":"{id}","status":"{status}",'
+        f'"elapsed":{elapsed:.4f}}}\n'
+    )
+
+
 def default_events_file(outdir: str, output: str | None) -> Path:
     """Where the listener writes by default: named after the output file, the way robotdashboard
     finds a run's ``log.html`` (``output`` -> ``log``), so tools can find a run's events from its output."""
@@ -218,10 +310,11 @@ class _Frame:
 
     ``id`` is None for IF/TRY roots; ``owner`` then points to the frame whose
     child counter the root's branches share. ``emitted`` is False for roots and
-    for structures hidden with ``structures=false``.
+    for structures hidden with ``structures=false``. ``keyword`` is True for keywords,
+    the only steps whose children can come from another file.
     """
 
-    __slots__ = ("children", "emitted", "id", "owner", "pid", "source")
+    __slots__ = ("children", "emitted", "id", "keyword", "owner", "pid", "source")
 
     def __init__(
         self,
@@ -230,8 +323,10 @@ class _Frame:
         parent: _Frame | None,
         owner: _Frame | None = None,
         emitted: bool = True,
+        keyword: bool = False,
     ) -> None:
         self.id = id
+        self.keyword = keyword
         self.children = 0
         self.owner = owner
         self.source = source
@@ -309,8 +404,20 @@ class Listener:
         # data.source walks up the model on every call; siblings share their parent, so cache per parent
         self._source_parent: Any = None
         self._source_value: str | None = None
+        # the time of step events, formatted once per millisecond: [_t_low, _t_high) formats as _t_text
+        self._t_low = self._t_high = 0.0
+        self._t_text = ""
 
     # --- emitting -------------------------------------------------------------
+
+    def _time(self) -> str:
+        t = time.time()
+        if not self._t_low <= t < self._t_high:
+            # formatted, not rounded (three times faster): the text can end in zeros
+            self._t_text = text = f"{t:.3f}"
+            value = float(text)
+            self._t_low, self._t_high = value - 0.0005, value + 0.0005
+        return self._t_text
 
     def _new(self, type_: str) -> dict[str, Any]:
         self._seq += 1
@@ -336,8 +443,7 @@ class Listener:
                 self._out.write(((line if line is not None else self._encode(event)) + "\n").encode("utf-8"))
                 self._dirty = True
             except OSError as e:
-                print(f"robotframework-events: disabling file output: {e}", file=sys.__stderr__)
-                self._out = None
+                self._write_failed(e)
 
         if not _callbacks:
             return
@@ -347,6 +453,10 @@ class Listener:
             except Exception as e:  # never raise into Robot Framework
                 print(f"robotframework-events: removing failing callback: {e}", file=sys.__stderr__)
                 remove_callback(callback)
+
+    def _write_failed(self, error: OSError) -> None:
+        print(f"robotframework-events: disabling file output: {error}", file=sys.__stderr__)
+        self._out = None
 
     def _flush(self) -> None:
         out = self._out
@@ -530,40 +640,75 @@ class Listener:
         counter = parent.owner or parent
         counter.children += 1
         item_id = f"{counter.id}-k{counter.children}"
-        source = self._data_source(data)
+        # data.source walks up the model, and in FOR loops data is new every iteration;
+        # only a keyword's children (a user keyword's body) can be in another file
+        source = self._data_source(data) if parent.keyword else parent.source
 
         if kind in CONTROL_TYPES and not self._structures:
             # ids stay exact, but the structure is hidden: its children attach to the nearest emitted step
             self._stack.append(_Frame(item_id, source or parent.source, parent, emitted=False))
             return
 
-        # the most frequent event: built directly instead of through _emit
-        event = self._new("step.started")
-        event["id"] = item_id
-        if parent.pid is not None:
-            event["parent"] = parent.pid
-        event["kind"] = kind
-        if source and source != parent.source:
-            event["source"] = source
+        new_source = source if source and source != parent.source else None
         lineno = getattr(data, "lineno", None)
-        if lineno is not None:
-            event["lineno"] = lineno
-        event.update(step_fields(kind, result, self._args))
-        self._write(event, _step_started_json)
-        self._stack.append(_Frame(item_id, source or parent.source, parent))
+        line = None
+        if self._out is not None and not _callbacks and (kind in KEYWORD_TYPES or kind == "ITERATION"):
+            # the most frequent event: written as a line without an event dict
+            try:
+                line = _step_started_line(
+                    self._seq + 1, self._time(), item_id, parent.pid, kind, new_source, lineno, result, self._args
+                )
+            except (TypeError, ValueError, AttributeError):  # an unexpected value: the event dict and the encoder
+                line = None
+        if line is not None:
+            self._seq += 1
+            try:  # inlined: a call per event is measurable
+                self._out.write(line.encode("utf-8"))  # type: ignore[union-attr]
+                self._dirty = True
+            except OSError as e:
+                self._write_failed(e)
+        else:
+            event = self._new("step.started")
+            event["id"] = item_id
+            if parent.pid is not None:
+                event["parent"] = parent.pid
+            event["kind"] = kind
+            if new_source:
+                event["source"] = new_source
+            if lineno is not None:
+                event["lineno"] = lineno
+            event.update(step_fields(kind, result, self._args))
+            self._write(event, _step_started_json)
+        # positional: keyword arguments make this call measurably slower
+        self._stack.append(_Frame(item_id, source or parent.source, parent, None, True, kind in KEYWORD_TYPES))
 
     def end_body_item(self, data: Any, result: Any) -> None:
         frame = self._stack.pop()
         if not frame.emitted:
             return
-        event = self._new("step.ended")
-        event["id"] = frame.id
-        event["status"] = result.status
         message = result.message
-        if message:
-            event["message"] = message
-        event["elapsed"] = round(result.elapsed_time.total_seconds(), 4)
-        self._write(event, _step_ended_json)
+        elapsed = result.elapsed_time.total_seconds()
+        line = None
+        if self._out is not None and not _callbacks:
+            try:
+                line = _step_ended_line(self._seq + 1, self._time(), frame.id, result.status, message, elapsed)
+            except (TypeError, ValueError, AttributeError):
+                line = None
+        if line is not None:
+            self._seq += 1
+            try:  # inlined: a call per event is measurable
+                self._out.write(line.encode("utf-8"))  # type: ignore[union-attr]
+                self._dirty = True
+            except OSError as e:
+                self._write_failed(e)
+        else:
+            event = self._new("step.ended")
+            event["id"] = frame.id
+            event["status"] = result.status
+            if message:
+                event["message"] = message
+            event["elapsed"] = round(elapsed, 4)
+            self._write(event, _step_ended_json)
         if self._shots is not None and result.type in KEYWORD_TYPES:
             self._screenshot(frame.id, result)
 

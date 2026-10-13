@@ -1,12 +1,12 @@
 """Overhead on the no-op loop, the worst case. Run with ``pytest -m bench``.
 
-The plan aims for 25%. Measured 2026-10-10 (RF 7.5, Python 3.14, Windows, best of 15
-alternating runs, two rounds): an empty listener costs 5%, a minimal id-tracking listener 22%,
-this listener 27-28%, about 16-17 us per event (32-34% and 19-21 us before step events were
-built without empty fields and written from templates). Single runs vary by about 7 points,
-so the budget below is a regression guard.
+Measured 2026-10-14 (RF 7.5, Windows, best of 5 alternating runs, three rounds, see
+``scripts/bench_listener.py``): Python 3.11-3.14 11-19%, 3.10 18-26% (27-35% before step
+events were written without an event dict, 2026-10-13). An empty listener alone costs 4-7%.
+Single runs vary by about 7 points, so the budget below is a regression guard.
 """
 
+import sys
 import time
 from pathlib import Path
 
@@ -18,7 +18,8 @@ from conftest import DATA
 pytestmark = pytest.mark.bench
 
 N = 4000
-BUDGET = 1.35
+# Python 3.10 runs Robot Framework faster but the listener slower, so its ratio is higher
+BUDGET = 1.30 if sys.version_info < (3, 11) else 1.25
 
 
 def best_of(runs: int, **options) -> float:

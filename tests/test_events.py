@@ -248,6 +248,40 @@ def test_step_templates_match_the_encoder(tmp_path: Path):
     assert _step_started_json({**unknown, "type": "step.started", "kind": "IF", "condition": "1"}) is None
 
 
+def test_step_lines_match_the_event_dicts(tmp_path: Path):
+    """Without callbacks, keyword and iteration steps are written without an event dict; with one, from the dict."""
+    (tmp_path / "kw.resource").write_text(
+        "*** Keywords ***\nMy Kw\n    [Arguments]    ${a}    ${b}=x\n    [Tags]    robot:flatten\n"
+        '    Log    ${a} "${b}" é\n    FOR    ${i}    IN    1    2\n        No Operation\n    END\n'
+        "    RETURN    ${a}\n",
+        encoding="utf-8",
+    )
+    suite = tmp_path / "lines.robot"
+    suite.write_text(
+        "*** Settings ***\nResource    kw.resource\nSuite Setup    Log    setup\n\n*** Test Cases ***\nT\n"
+        '    ${x}    Set Variable    a"b\\c\n    ${r}    My Kw    q\\tw    ✓\n    My Kw    q\\tw    ✓\n'
+        "    FOR    ${k}    ${v}    IN ZIP    ${{[1, 2]}}    ${{['x', 'é']}}\n        Log    ${k}=${v}\n    END\n"
+        '    TRY\n        Fail    bad "msg" \\\\ ✗\n    EXCEPT    *    type=glob\n        No Operation\n    END\n'
+        "    Run Keyword    Log    nested\n",
+        encoding="utf-8",
+    )
+
+    def events(name, callback=None):
+        if callback:
+            robotframework_events.add_callback(callback)
+        try:
+            events, _ = run_with_listener(tmp_path / name, [suite])
+        finally:
+            if callback:
+                robotframework_events.remove_callback(callback)
+        steps = [e for e in events if e["type"] in ("step.started", "step.ended")]
+        return [{k: v for k, v in e.items() if k not in ("t", "elapsed")} for e in steps]
+
+    lines = events("lines")
+    assert len(by_type(lines, "step.started")) >= 15
+    assert lines == events("dicts", lambda event: None)
+
+
 def test_default_file_is_named_after_the_output_file(tmp_path: Path):
     from robot import run
 

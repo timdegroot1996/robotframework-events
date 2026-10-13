@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## Unreleased
+
+### Changed
+- Lower listener overhead: on the worst case (a loop of `No Operation`) a run takes 11-13% longer with the listener on Python 3.11-3.14 (was 18-24%) and 18-22% on Python 3.10 (was 34-35%). Keyword and loop iteration steps are written without building an event dict when no callback is registered
+- Times in step events are written with a fixed number of decimals, so they can end in zeros (`"elapsed":0.0010`, `"t":1791930982.400`). The values are the same; only programs that compare the text see a difference
+
+---
+
 ## [0.6.0](https://github.com/timdegroot1996/robotframework-events/releases/tag/v0.6.0) - 2026-10-13
 
 ### Added
